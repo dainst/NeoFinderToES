@@ -33,30 +33,11 @@ import java.util.regex.Pattern;
  */
 public class NeoFinderToES {
 
-    private static final int RESULT_LINE_LIMIT = 5000000;
-
-    private static final Pattern BAUWERK_PATTERN = Pattern.compile("^BT(\\d+)$");
-    private static final Pattern ZERO_PATTERN = Pattern.compile("^0+(\\d+)$");
-    private static final Pattern NUMBERS_PATTERN = Pattern.compile("\\d+");
-    private static final Pattern FILENAME_PATTERN = Pattern.compile("^.*_(\\w+)(,\\d{2})?\\.\\w{3}$");
-
-    private static final String OUTPUT_PATH = "results";
     private static final String LOG_FILE = "errors.log";
 
-    private static final SimpleDateFormat DATE_FORMAT_GERMAN
-            = new SimpleDateFormat("EEEE, dd. MMMM yyyy, HH:mm:ss", new DateFormatSymbols(Locale.GERMANY));
-    private static final SimpleDateFormat DATE_FORMAT_ENGLISH
-            = new SimpleDateFormat("EEEE, MMMM dd, yyyy, HH:mm:ss", new DateFormatSymbols(Locale.ENGLISH));
-    private static final SimpleDateFormat OUTPUT_DATE_TIME_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
     private static int inputLineCounter = 0;
-    private static int entityCounter = 0;
-    private static int folderCounter = 0;
     private static int fileCounter = 0;
     private static int skippedCounter = 0;
-
-    private static int resultLineCounter = 0;
-    private static int resultFileCounter = 0;
 
     private static int indexName;
     private static int indexPath;
@@ -74,11 +55,11 @@ public class NeoFinderToES {
 
     private static PrintWriter parserLog;
 
-    public static void main(String[] args) throws FileNotFoundException {
+    private static ESService esService;
+
+    public static void main(String[] args) throws FileNotFoundException, ClassNotFoundException {
 
         parserLog = new PrintWriter(new FileOutputStream(LOG_FILE, true));
-
-        System.out.println("Please specify target index name:");
 
         if (args.length != 1) {
             System.out.println("Expecting one parameter: arg[0] = source folder or file.");
@@ -92,29 +73,36 @@ public class NeoFinderToES {
             return;
         }
 
+        esService = new ESService();
+        if (!esService.createIndex(targetIndexName)) {
+            System.out.println("Adding to index '" + targetIndexName + "'");
+        }
+
         if (scanDirectory.isDirectory()) {
             String[] files = scanDirectory.list();
             for (final String file : files) {
-                if (file.endsWith(".csv")) {
-                    readCSV(scanDirectory + "/" + file);
-                }
+                readCSV(scanDirectory + "/" + file);
             }
-        } else if (scanDirectory.getName().endsWith(".csv")) {
+        } else {
             readCSV(scanDirectory.getAbsolutePath());
         }
 
+        esService.close();
+
         System.out.println("Done. Lines processed: " + inputLineCounter);
         System.out.println(skippedCounter + " lines skipped");
-        System.out.println(folderCounter + " folders");
-        System.out.println(fileCounter + " files");
-        System.out.println(entityCounter + " of those files potentially referring to arachne entities");
+        System.out.println(fileCounter + " entries");
     }
 
     private static void readCSV(String path) {
+
+        if (!(path.endsWith(".csv") || path.endsWith(".txt"))) {
+            System.out.println("Skipping " + path + " (no csv or txt)");
+            return;
+        }
+
         int currentColumns = -1;
         isFirstLine = true;
-        resultFileCounter = 0;
-        resultLineCounter = 0;
         System.out.println("New file: " + path);
         File file = new File(path);
         if (!file.canRead()) {
@@ -153,11 +141,6 @@ public class NeoFinderToES {
                         continue;
                     }
 
-                    if (lineContents[indexType].compareTo("Ordner") == 0 || lineContents[indexType].compareTo("Folder") == 0) {
-                        folderCounter++;
-                        continue;
-                    }
-
                     fileCounter++;
                     try {
                         String currentName = (indexName != -1)
@@ -171,39 +154,16 @@ public class NeoFinderToES {
                         String currentVolume = (indexVolume != -1)
                                 ? lineContents[indexVolume] : null;
 
-                        String currentCreated = (indexCreated != -1) ? TryParsingDate(lineContents[indexCreated], currentLine) : null;
-                        String currentChanged = (indexChanged != -1) ? TryParsingDate(lineContents[indexChanged], currentLine) : null;
-
-                        ArachneEntity entityInfo = null;
-
-                        if ((currentPath.toLowerCase().contains("datenbank") || currentPath.toLowerCase().contains("rohscan"))
-                                || currentPath.toLowerCase().contains("druck")) {
-                            entityInfo = tryParsingArachneEntityFromFileName(lineContents[indexName]);
-                        } else {
-                        }
-
-                        String currentArachneID = (entityInfo != null) ? entityInfo.arachneID : null;
-                        String currentRestrictingTable = (entityInfo != null) ? entityInfo.restrictingTable : null;
-                        boolean currentForeignKey = (entityInfo != null) ? entityInfo.foreignKey : false;
+                        String currentCreated = (indexCreated != -1) ? lineContents[indexCreated] : null;
+                        String currentChanged = (indexChanged != -1) ? lineContents[indexChanged] : null;
 
                         ArchivedFileInfo fileInfo = new ArchivedFileInfo(
-                                currentArachneID, currentName, currentPath,
+                                currentName, currentPath,
                                 currentCreated, currentChanged,
-                                currentForeignKey, currentRestrictingTable,
                                 currentCatalog, currentVolume, currentType);
 
-                        ArrayList<ArchivedFileInfo> list = new ArrayList<>();
+                        esImport(fileInfo);
 
-                        list.add(fileInfo);
-
-                        if (resultLineCounter == RESULT_LINE_LIMIT) {
-                            resultFileCounter++;
-                            resultLineCounter = 0;
-                        } else {
-                            resultLineCounter++;
-                        }
-
-                        esImport(list);
                     } catch (ArrayIndexOutOfBoundsException e) {
                         parserLog.println("ArrayIndexOutOfBoundsException at line:");
                         parserLog.println(currentLine);
@@ -221,124 +181,22 @@ public class NeoFinderToES {
         }
     }
 
-    private static void esImport(List<ArchivedFileInfo> archivedFileInfoList) {
+    private static void esImport(ArchivedFileInfo currentFile) {
+
+        final ObjectMapper mapper = new ObjectMapper();
 
         try {
+            byte[] jsonAsBytes = mapper.writeValueAsBytes(currentFile);
 
-            final ESService esService = new ESService();
-            if (!esService.createIndex(targetIndexName)) {
-                    System.out.println("Adding to index '" + targetIndexName + "'");
+            String id = esService.addToIndex(targetIndexName, jsonAsBytes);
+            if (id == null || id.isEmpty()) {
+                Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "Failed to add entry {0}"
+                        , mapper.writeValueAsString(currentFile));
             }
-
-            DBService dbService = new DBService();
-            String updateString = new String();
-            final ObjectMapper mapper = new ObjectMapper();
-
-            for (ArchivedFileInfo currentFile : archivedFileInfoList) {
-                {
-                    String folderType = new String();
-
-                    if (currentFile.getPath().toLowerCase().contains("rohscan")) {
-                        folderType = "Rohscan";
-                    } else if (currentFile.getPath().toLowerCase()
-                            .contains("datenbank")) {
-                        folderType = "datenbankfertig";
-                    } else if (currentFile.getPath().toLowerCase()
-                            .contains("druckfertig")) {
-                        folderType = "druckfertig";
-                    } else {
-                        folderType = "unbekannt";
-                    }
-
-                    String arachneEntityID = new String();
-                    String dateinameTivoli = null;
-
-                    if (currentFile.getArachneID() == null) {
-                        arachneEntityID = null;
-                    } else {
-                        if (currentFile.isForeignKey()
-                                && currentFile.getForcedTable() != null) {
-                            String sql = "(SELECT `ArachneEntityID` "
-                                    + "FROM `arachneentityidentification` "
-                                    + " WHERE `TableName` = '" + currentFile.getForcedTable() + "' "
-                                    + " AND `ForeignKey` = " + Long.parseLong(currentFile.getArachneID().replace("BT", ""))
-                                    + " HAVING COUNT(*) = 1)";
-                            try {
-                                currentFile.setArachneID(String.valueOf(dbService.queryDBForLong(sql)));
-                            } catch (SQLException ex) {
-                                Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-                            }
-                        } else if (currentFile.isForeignKey()) {
-                            String sql = "(SELECT `ArachneEntityID` FROM `arachneentityidentification` "
-                                    + " WHERE `ForeignKey` = " + Long.parseLong(currentFile.getArachneID().replace("BT", ""))
-                                    + " HAVING COUNT(*) = 1)";
-                            try {
-                                currentFile.setArachneID(String.valueOf(dbService.queryDBForLong(sql)));
-                            } catch (SQLException ex) {
-                                Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-                            }
-                        }
-
-                        String sql = "(SELECT `DateinameMarbilder` FROM `marbilder` "
-                                + "WHERE `DateinameMarbilder`='" + currentFile.getName().replace("tif", "jpg") + "')";
-                        try {
-                            currentFile.setFileNameMarbilderTivoli(dbService.queryDBForString(sql));
-                        } catch (SQLException ex) {
-                            Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-                        }
-                    }
-
-                    try {
-                        byte[] jsonAsBytes = mapper.writeValueAsBytes(currentFile);
-
-                        String id = esService.addToIndex(targetIndexName, jsonAsBytes);
-                        if (id == null || id.isEmpty()) {
-                            Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "Failed to add entry {0}"
-                                    , mapper.writeValueAsString(currentFile));
-                        }
-                    } catch (JsonProcessingException ex) {
-                        Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-                    }
-                }
-
-            }
-            try {
-                dbService.close();
-            } catch (SQLException ex) {
-                Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-            }
-            esService.close();
-        } catch (ClassNotFoundException ex) {
+        } catch (JsonProcessingException ex) {
             Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
         }
-    }
 
-    private static ArachneEntity tryParsingArachneEntityFromFileName(
-            String fileName) {
-        Matcher matchFile = FILENAME_PATTERN.matcher(fileName);
-
-        if (matchFile.matches()) {
-            Matcher bauwerkMatcher = BAUWERK_PATTERN.matcher(matchFile.group(1));
-            if (bauwerkMatcher.matches()) {
-                entityCounter++;
-                return new ArachneEntity(bauwerkMatcher.group(1), true,
-                        "bauwerksteil");
-            }
-
-            Matcher zeroMatcher = ZERO_PATTERN.matcher(matchFile.group(1));
-            if (zeroMatcher.matches()) {
-                entityCounter++;
-                return new ArachneEntity(zeroMatcher.group(1), true, null);
-            }
-
-            Matcher numbersMatcher = NUMBERS_PATTERN.matcher(matchFile.group(1));
-
-            if (numbersMatcher.matches()) {
-                entityCounter++;
-                return new ArachneEntity(matchFile.group(1), false, null);
-            }
-        }
-        return null;
     }
 
     private static void setIndices(String[] lineContents) {
@@ -373,26 +231,4 @@ public class NeoFinderToES {
         }
     }
 
-    private static String TryParsingDate(String input, String originalLine) {
-        if (input == null
-                || input.compareTo("n.v.") == 0
-                || input.compareTo("n.a.") == 0
-                || input.compareTo("") == 0) {
-            return null;
-        } else {
-            try {
-                return OUTPUT_DATE_TIME_FORMAT.format(DATE_FORMAT_GERMAN.parse(input));
-            } catch (ParseException e) {
-                try {
-                    return OUTPUT_DATE_TIME_FORMAT.format(DATE_FORMAT_ENGLISH.parse(input));
-                } catch (ParseException ex) {
-                    Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-                    parserLog.println("Unable to parse date:");
-                    parserLog.println(input);
-                    parserLog.println(originalLine);
-                    return null;
-                }
-            }
-        }
-    }
 }

@@ -15,8 +15,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
 class ArchivedFileInfo {
 
-    private String arachneID;
-
     private String catalog;
     private String volume;
 
@@ -25,28 +23,19 @@ class ArchivedFileInfo {
 
     private final String created;
     private final String lastChanged;
-    
-    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
-    private boolean foreignKey;
-    private String forcedTable;
 
     private String folderType;
     private String resourceType;
     
     private String fileNameMarbilderTivoli = null;
 
-    public ArchivedFileInfo(String arachneID, String name, String path, String created, String lastChanged,
-            boolean usesForeignKey, String forcedTable, String catalog, String volume, String resourceType) {
-
-        this.arachneID = arachneID;
+    public ArchivedFileInfo( String name, String path, String created, String lastChanged,
+            String catalog, String volume, String resourceType) {
 
         this.name = name;
         this.path = path;
         this.created = created;
         this.lastChanged = lastChanged;
-
-        this.foreignKey = usesForeignKey;
-        this.forcedTable = forcedTable;
 
         this.catalog = catalog;
         this.volume = volume;
@@ -69,14 +58,6 @@ class ArchivedFileInfo {
         return lastChanged;
     }
 
-    public String getArachneID() {
-        return arachneID;
-    }
-
-    public void setArachneID(String arachneID) {
-        this.arachneID = arachneID;
-    }
-
     public String getCatalog() {
         return catalog;
     }
@@ -91,22 +72,6 @@ class ArchivedFileInfo {
 
     public void setVolume(String volume) {
         this.volume = volume;
-    }
-
-    public boolean isForeignKey() {
-        return foreignKey;
-    }
-
-    public void setForeignKey(boolean foreignKey) {
-        this.foreignKey = foreignKey;
-    }
-
-    public String getForcedTable() {
-        return forcedTable;
-    }
-
-    public void setForcedTable(String forcedTable) {
-        this.forcedTable = forcedTable;
     }
 
     public String getResourceType() {
@@ -135,7 +100,6 @@ class ArchivedFileInfo {
     
     @Override
     public String toString() {
-        return name + ", " + path + ", " + created + ", " + lastChanged + ", " + arachneID + ", " + forcedTable + ", " 
-                + foreignKey;
+        return name + ", " + path + ", " + created + ", " + lastChanged;
     }
 }
