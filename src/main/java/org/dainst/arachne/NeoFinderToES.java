@@ -15,17 +15,17 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
-import java.sql.SQLException;
-import java.text.DateFormatSymbols;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.HelpFormatter;
+import org.apache.commons.cli.Option;
+import org.apache.commons.cli.OptionBuilder;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.ParseException;
 
 /**
  * @author Simon Hohl
@@ -60,6 +60,40 @@ public class NeoFinderToES {
     public static void main(String[] args) throws FileNotFoundException, ClassNotFoundException {
 
         parserLog = new PrintWriter(new FileOutputStream(LOG_FILE, true));
+
+        final Options options = new Options();
+        options.addOption("c","catalog", false, "read cdfinder/neofinder catalog files");
+        options.addOption("n","newindex", false, "create a new elasticsearch index (if an old one with the same name exists it "
+                + "will be deleted");
+        options.addOption(Option.builder("i")
+                .longOpt("indexname")
+                .desc("the name of the elasticsearch index (omitting this the name " 
+                                        + targetIndexName + " will be used)")
+                .hasArg()
+                .argName("NAME")
+                .build());
+        
+        final CommandLineParser parser = new DefaultParser();
+        CommandLine cmd = null;
+        try {
+            cmd = parser.parse(options, args);
+            if (cmd != null) {
+                List<String> argList = cmd.getArgList();
+                String fileOrDirName = null;
+                if (!argList.isEmpty()) {
+                    fileOrDirName = argList.get(cmd.getArgList().size() - 1);
+                    System.out.println("File: " + fileOrDirName);
+                } else {
+                    HelpFormatter formatter = new HelpFormatter();
+                    formatter.printHelp("neofindertoes FILE_OR_DIRECTORY", options);
+                }
+            }
+        } catch (ParseException ex) {
+            Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "failed to parse command line options", ex);
+            System.exit(1);
+        }
+
+        System.exit(0);
 
         if (args.length != 1) {
             System.out.println("Expecting one parameter: arg[0] = source folder or file.");
@@ -113,7 +147,7 @@ public class NeoFinderToES {
         try {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                     new FileInputStream(path), "UTF8"))) {
-               
+
                 String currentLine;
                 while ((currentLine = reader.readLine()) != null) {
                     inputLineCounter++;
@@ -190,8 +224,7 @@ public class NeoFinderToES {
 
             String id = esService.addToIndex(targetIndexName, jsonAsBytes);
             if (id == null || id.isEmpty()) {
-                Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "Failed to add entry {0}"
-                        , mapper.writeValueAsString(currentFile));
+                Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "Failed to add entry {0}", mapper.writeValueAsString(currentFile));
             }
         } catch (JsonProcessingException ex) {
             Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
