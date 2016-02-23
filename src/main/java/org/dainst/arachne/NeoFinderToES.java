@@ -26,6 +26,7 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.apache.commons.cli.UnrecognizedOptionException;
 
 /**
  * @author Simon Hohl
@@ -62,51 +63,46 @@ public class NeoFinderToES {
         parserLog = new PrintWriter(new FileOutputStream(LOG_FILE, true));
 
         final Options options = new Options();
-        options.addOption("c","catalog", false, "read cdfinder/neofinder catalog files");
-        options.addOption("n","newindex", false, "create a new elasticsearch index (if an old one with the same name exists it "
+        options.addOption("h", "help", false, "print this message");
+        options.addOption("c", "catalog", false, "read cdfinder/neofinder catalog files");
+        options.addOption("n", "newindex", false, "create a new elasticsearch index (if an old one with the same name exists it "
                 + "will be deleted");
         options.addOption(Option.builder("i")
                 .longOpt("indexname")
-                .desc("the name of the elasticsearch index (omitting this the name " 
-                                        + targetIndexName + " will be used)")
+                .desc("the name of the elasticsearch index (omitting this the name '"
+                        + targetIndexName + "' will be used)")
                 .hasArg()
                 .argName("NAME")
                 .build());
-        
-        final CommandLineParser parser = new DefaultParser();
-        CommandLine cmd = null;
+
+        String fileOrDirName = "";
         try {
-            cmd = parser.parse(options, args);
-            if (cmd != null) {
-                List<String> argList = cmd.getArgList();
-                String fileOrDirName = null;
-                if (!argList.isEmpty()) {
-                    fileOrDirName = argList.get(cmd.getArgList().size() - 1);
-                    System.out.println("File: " + fileOrDirName);
-                } else {
-                    HelpFormatter formatter = new HelpFormatter();
-                    formatter.printHelp("neofindertoes FILE_OR_DIRECTORY", options);
-                }
+            final CommandLineParser parser = new DefaultParser();
+            final CommandLine cmd = parser.parse(options, args);
+            List<String> argList = cmd.getArgList();
+            if (!argList.isEmpty()) {
+                fileOrDirName = argList.get(cmd.getArgList().size() - 1);
+            } else {
+                HelpFormatter formatter = new HelpFormatter();
+                formatter.printHelp("neofindertoes FILE_OR_DIRECTORY", options);
+                System.exit(0);
             }
         } catch (ParseException ex) {
+            if (ex instanceof UnrecognizedOptionException) {
+                System.out.println(ex.getMessage());
+                System.exit(1);
+            }
             Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "failed to parse command line options", ex);
-            System.exit(1);
+            System.exit(2);
         }
 
-        System.exit(0);
-
-        if (args.length != 1) {
-            System.out.println("Expecting one parameter: arg[0] = source folder or file.");
-            return;
-        }
-
-        File scanDirectory = new File(args[0]);
+        File scanDirectory = new File(fileOrDirName);
 
         if (!scanDirectory.exists()) {
-            System.out.println("Source " + args[0] + " does not exist.");
+            System.out.println("Source '" + fileOrDirName + "' does not exist.");
             return;
         }
-
+        
         esService = new ESService();
         if (!esService.createIndex(targetIndexName)) {
             System.out.println("Adding to index '" + targetIndexName + "'");
