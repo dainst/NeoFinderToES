@@ -1,26 +1,20 @@
 package org.dainst.arachne;
 
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.util.Properties;
-import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexResponse;
+import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsResponse;
 import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 /**
  *
  * @author Reimar Grabowski
@@ -77,6 +71,15 @@ public class ESService {
             return false;
         }
         return true;
+    }
+    
+    public boolean indexExists(final String indexName) {
+        try {
+            final IndicesExistsResponse existsResponse = client.admin().indices().prepareExists(indexName).execute().actionGet();
+            return existsResponse.isExists();
+        } catch (ElasticsearchException e) {
+            return false;
+        }
     }
     
     public String addToIndex(final String indexName, final byte[] source) {

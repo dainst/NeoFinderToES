@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package org.dainst.arachne;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -15,7 +10,16 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.nio.file.LinkOption;
+import java.util.Date;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.commons.cli.CommandLine;
@@ -23,12 +27,17 @@ import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
-import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.UnrecognizedOptionException;
+import org.apache.commons.lang3.time.DurationFormatUtils;
 
 /**
+ * Exit codes
+ *
+ * 0 success 1 unrecognized command line option 2 failed to parse command line 3 failed to create elasticsearch index 4
+ * file or directory does not exist 5 io exception
+ *
  * @author Simon Hohl
  * @author Reimar Grabowski
  */
@@ -42,6 +51,8 @@ public class NeoFinderToES {
 
     private static int indexName;
     private static int indexPath;
+
+    private static int indexSize;
     private static int indexType;
 
     private static int indexCreated;
@@ -58,21 +69,53 @@ public class NeoFinderToES {
 
     private static ESService esService;
 
-    public static void main(String[] args) throws FileNotFoundException, ClassNotFoundException {
+    private static boolean scanMode = true;
 
-        parserLog = new PrintWriter(new FileOutputStream(LOG_FILE, true));
+    private static int mimeInfo = 1;
+
+    private static int maxThreads = 5;
+
+    private static String newline = System.getProperty("line.separator");
+
+    private static int availableCPUs = Runtime.getRuntime().availableProcessors();
+
+    private static boolean verbose = false;
+
+    public static void main(String[] args) {
+
+        try {
+            parserLog = new PrintWriter(new FileOutputStream(LOG_FILE, true));
+        } catch (FileNotFoundException ex) {
+            Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
+        }
 
         final Options options = new Options();
         options.addOption("h", "help", false, "print this message");
         options.addOption("c", "catalog", false, "read cdfinder/neofinder catalog files");
         options.addOption("n", "newindex", false, "create a new elasticsearch index (if an old one with the same name exists it "
                 + "will be deleted");
+        options.addOption("v", "verbose", false, "show files being processed");
         options.addOption(Option.builder("i")
                 .longOpt("indexname")
                 .desc("the name of the elasticsearch index (omitting this the name '"
                         + targetIndexName + "' will be used)")
                 .hasArg()
                 .argName("NAME")
+                .build());
+        options.addOption(Option.builder("m")
+                .longOpt("mimeType")
+                .desc("the mime type fetch strategy to use:" + newline
+                        + "0: no mime type information is fetched (default)" + newline
+                        + "1: mime type is 'guessed' based on file extension" + newline
+                        + "2: mime type is detected by inspecting the file (most accurate but slow)")
+                .hasArg()
+                .argName("STRATEGY")
+                .build());
+        options.addOption(Option.builder("t")
+                .longOpt("threads")
+                .desc("the maximum number of threads used (the default value is 5)")
+                .hasArg()
+                .argName("MAX_THREADS")
                 .build());
 
         String fileOrDirName = "";
@@ -82,10 +125,42 @@ public class NeoFinderToES {
             List<String> argList = cmd.getArgList();
             if (!argList.isEmpty()) {
                 fileOrDirName = argList.get(cmd.getArgList().size() - 1);
+                scanMode = !cmd.hasOption("c");
+                verbose = cmd.hasOption("v");
+                if (cmd.hasOption("i")) {
+                    targetIndexName = cmd.getOptionValue("i");
+                }
+                if (cmd.hasOption("t")) {
+                    maxThreads = Integer.valueOf(cmd.getOptionValue("t"));
+                    maxThreads = maxThreads <= availableCPUs * 5 ? maxThreads : availableCPUs * 5;
+                }
+                if (cmd.hasOption("m")) {
+                    mimeInfo = Integer.valueOf(cmd.getOptionValue("m"));
+                }
             } else {
                 HelpFormatter formatter = new HelpFormatter();
                 formatter.printHelp("neofindertoes FILE_OR_DIRECTORY", options);
                 System.exit(0);
+            }
+
+            esService = new ESService();
+            if (cmd.hasOption("n")) {
+                if (esService.indexExists(targetIndexName)) {
+                    esService.deleteIndex(targetIndexName);
+                }
+                if (!esService.createIndex(targetIndexName)) {
+                    System.out.println("Failed to create elasticsearch index");
+                    System.exit(3);
+                }
+                System.out.println("Adding to existing index '" + targetIndexName + "'");
+            } else {
+                if (!esService.indexExists(targetIndexName)) {
+                    if (!esService.createIndex(targetIndexName)) {
+                        System.out.println("Failed to create elasticsearch index");
+                        System.exit(3);
+                    }
+                }
+                System.out.println("Adding to newly created index '" + targetIndexName + "'");
             }
         } catch (ParseException ex) {
             if (ex instanceof UnrecognizedOptionException) {
@@ -96,29 +171,82 @@ public class NeoFinderToES {
             System.exit(2);
         }
 
-        File scanDirectory = new File(fileOrDirName);
+        Indexer indexer = null;
+        try {
+            File scanDirectory = new File(fileOrDirName).getCanonicalFile();
 
-        if (!scanDirectory.exists()) {
-            System.out.println("Source '" + fileOrDirName + "' does not exist.");
-            return;
-        }
-        
-        esService = new ESService();
-        if (!esService.createIndex(targetIndexName)) {
-            System.out.println("Adding to index '" + targetIndexName + "'");
-        }
-
-        if (scanDirectory.isDirectory()) {
-            String[] files = scanDirectory.list();
-            for (final String file : files) {
-                readCSV(scanDirectory + "/" + file);
+            if (!scanDirectory.exists()) {
+                System.out.println("Source '" + fileOrDirName + "' does not exist.");
+                System.exit(4);
             }
-        } else {
-            readCSV(scanDirectory.getAbsolutePath());
+
+            if (scanDirectory.isDirectory()) {
+                if (scanMode) {
+                    System.out.format("Scanning %s ...\n", scanDirectory);
+
+                    BlockingQueue<ArchivedFileInfo> queue = new LinkedBlockingQueue<>();
+
+                    indexer = new Indexer(scanDirectory, targetIndexName, esService, queue, verbose);
+                    ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
+                    Future<Long> indexedFiles = (Future<Long>) singleThreadExecutor.submit(indexer);
+
+                    DirectoryCrawler crawler;
+
+                    crawler = new DirectoryCrawler(scanDirectory.toPath().toRealPath(LinkOption.NOFOLLOW_LINKS),
+                            mimeInfo, queue);
+                    ForkJoinPool pool = new ForkJoinPool(maxThreads);
+
+                    long startTime = new Date().getTime();
+                    
+                    pool.invoke(crawler);
+
+                    while (!queue.isEmpty()) {
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException ex) {
+                            Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
+                        }
+                    }
+
+                    indexer.terminate();
+
+                    System.out.println("Done.");
+                    long endTime = new Date().getTime();
+                    String timeTaken = DurationFormatUtils.formatDuration((endTime - startTime), "HH:mm:ss");
+                    System.out.println("Elapsed time: " + timeTaken);
+                    try {
+                        System.out.println("Indexed files: " + indexedFiles.get());
+                    } catch (InterruptedException ex) {
+                        Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
+                        Thread.currentThread().interrupt();
+                    } catch (ExecutionException ex) {
+                        Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
+                    }
+                    
+                    singleThreadExecutor.shutdownNow();
+                    pool.shutdownNow();
+                } else {
+                    String[] files = scanDirectory.list();
+                    for (final String file : files) {
+                        readCSV(scanDirectory + "/" + file);
+                        printCSVStats();
+                    }
+                }
+            } else {
+                readCSV(scanDirectory.getAbsolutePath());
+                printCSVStats();
+            }
+        } catch (IOException ex) {
+            if (indexer != null) {
+                indexer.terminate();
+            }
+            System.exit(5);
         }
 
         esService.close();
+    }
 
+    private static void printCSVStats() {
         System.out.println("Done. Lines processed: " + inputLineCounter);
         System.out.println(skippedCounter + " lines skipped");
         System.out.println(fileCounter + " entries");
@@ -177,6 +305,8 @@ public class NeoFinderToES {
                                 ? lineContents[indexName] : null;
                         String currentPath = (indexPath != -1)
                                 ? lineContents[indexPath] : null;
+                        String currentSize = (indexSize != -1)
+                                ? lineContents[indexSize] : null;
                         String currentType = (indexType != -1)
                                 ? lineContents[indexType] : null;
                         String currentCatalog = (indexCatalog != -1)
@@ -187,10 +317,15 @@ public class NeoFinderToES {
                         String currentCreated = (indexCreated != -1) ? lineContents[indexCreated] : null;
                         String currentChanged = (indexChanged != -1) ? lineContents[indexChanged] : null;
 
-                        ArchivedFileInfo fileInfo = new ArchivedFileInfo(
-                                currentName, currentPath,
-                                currentCreated, currentChanged,
-                                currentCatalog, currentVolume, currentType);
+                        ArchivedFileInfo fileInfo = new ArchivedFileInfo()
+                                .setName(currentName)
+                                .setPath(currentPath)
+                                .setSize(currentSize)
+                                .setCreated(currentCreated)
+                                .setLastChanged(currentChanged)
+                                .setCatalog(currentCatalog)
+                                .setVolume(currentVolume)
+                                .setResourceType(currentType);
 
                         esImport(fileInfo);
 
@@ -198,7 +333,7 @@ public class NeoFinderToES {
                         parserLog.println("ArrayIndexOutOfBoundsException at line:");
                         parserLog.println(currentLine);
                         parserLog.println("Indices:");
-                        parserLog.println(indexName + " " + indexPath + " "
+                        parserLog.println(indexName + " " + indexPath + " " + indexSize + " "
                                 + indexCreated + " " + indexChanged + " "
                                 + indexType + " " + indexCatalog + " "
                                 + indexVolume);
@@ -233,6 +368,8 @@ public class NeoFinderToES {
         indexName = -1;
         indexPath = -1;
 
+        indexSize = -1;
+
         indexCreated = -1;
         indexChanged = -1;
 
@@ -246,11 +383,14 @@ public class NeoFinderToES {
                 indexName = i;
             } else if (lineContents[i].compareTo("Pfad") == 0 || lineContents[i].compareTo("Path") == 0) {
                 indexPath = i;
+            } else if (lineContents[i].compareTo("Größe") == 0 || lineContents[i].compareTo("Size") == 0) {
+                indexSize = i;
             } else if (lineContents[i].compareTo("Erstelldatum") == 0 || lineContents[i].compareTo("Date Created") == 0) {
                 indexCreated = i;
             } else if (lineContents[i].compareTo("Änderungsdatum") == 0 || lineContents[i].compareTo("Date Modified") == 0) {
                 indexChanged = i;
-            } else if (lineContents[i].compareTo("Art") == 0 || lineContents[i].compareTo("Kind") == 0) {
+            } else if (lineContents[i].compareTo("Art") == 0 || lineContents[i].compareTo("Kind") == 0
+                    || lineContents[i].compareTo("Media") == 0) {
                 indexType = i;
             } else if (lineContents[i].compareTo("Katalog") == 0 || lineContents[i].compareTo("Catalog") == 0) {
                 indexCatalog = i;
