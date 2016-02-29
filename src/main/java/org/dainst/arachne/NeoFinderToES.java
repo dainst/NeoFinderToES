@@ -152,7 +152,7 @@ public class NeoFinderToES {
                     System.out.println("Failed to create elasticsearch index");
                     System.exit(3);
                 }
-                System.out.println("Adding to existing index '" + targetIndexName + "'");
+                System.out.println("Adding to newly created index '" + targetIndexName + "'");
             } else {
                 if (!esService.indexExists(targetIndexName)) {
                     if (!esService.createIndex(targetIndexName)) {
@@ -160,7 +160,7 @@ public class NeoFinderToES {
                         System.exit(3);
                     }
                 }
-                System.out.println("Adding to newly created index '" + targetIndexName + "'");
+                System.out.println("Adding to existing index '" + targetIndexName + "'");
             }
         } catch (ParseException ex) {
             if (ex instanceof UnrecognizedOptionException) {
