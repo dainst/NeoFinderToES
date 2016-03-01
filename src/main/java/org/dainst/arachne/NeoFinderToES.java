@@ -16,6 +16,7 @@ import java.nio.file.LinkOption;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -243,8 +244,22 @@ public class NeoFinderToES {
 
                     long startTime = new Date().getTime();
 
-                    pool.invoke(crawler);
-
+                    // clean up if the execution is finished or terminated (for example by ctrl+c)
+                    Runtime.getRuntime().addShutdownHook(new Thread() {
+                        @Override
+                        public void run () {
+                            singleThreadExecutor.shutdownNow();
+                            pool.shutdownNow();
+                            esService.close();
+                        }
+                    });
+                    
+                    try {
+                        pool.invoke(crawler);
+                    } catch (CancellationException e) {
+                        // nothing to do here
+                    }
+                    
                     while (!queue.isEmpty()) {
                         try {
                             Thread.sleep(10);
@@ -267,9 +282,7 @@ public class NeoFinderToES {
                     } catch (ExecutionException ex) {
                         Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
                     }
-
                     singleThreadExecutor.shutdownNow();
-                    pool.shutdownNow();
                 } else {
                     String[] files = scanDirectory.list();
                     for (final String file : files) {
