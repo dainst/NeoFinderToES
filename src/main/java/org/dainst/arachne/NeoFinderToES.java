@@ -10,6 +10,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.file.LinkOption;
 import java.util.Date;
 import java.util.List;
@@ -32,11 +34,19 @@ import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.UnrecognizedOptionException;
 import org.apache.commons.lang3.time.DurationFormatUtils;
 
-/**
+/*
  * Exit codes
  *
- * 0 success 1 unrecognized command line option 2 failed to parse command line 3 failed to create elasticsearch index 4
- * file or directory does not exist 5 io exception
+ * 0 success 
+ * 1 unrecognized command line option 
+ * 2 failed to parse command line 
+ * 3 failed to create elasticsearch index 
+ * 4 file or directory does not exist 
+ * 5 io exception 
+ * 6 elasticsearch host not found
+ * 7 could not connect to elasticsearch cluster
+ */
+/**
  *
  * @author Simon Hohl
  * @author Reimar Grabowski
@@ -65,6 +75,9 @@ public class NeoFinderToES {
 
     private static String targetIndexName = "marbildertivoli";
 
+    private static String esClusterName = "elasticsearch";
+    private static InetAddress esAddress;
+
     private static PrintWriter parserLog;
 
     private static ESService esService;
@@ -83,6 +96,8 @@ public class NeoFinderToES {
 
     public static void main(String[] args) {
 
+        esAddress = InetAddress.getLoopbackAddress();
+
         try {
             parserLog = new PrintWriter(new FileOutputStream(LOG_FILE, true));
         } catch (FileNotFoundException ex) {
@@ -95,10 +110,23 @@ public class NeoFinderToES {
         options.addOption("n", "newindex", false, "create a new elasticsearch index (if an old one with the same name exists it "
                 + "will be deleted");
         options.addOption("v", "verbose", false, "show files being processed");
+        options.addOption(Option.builder("a")
+                .longOpt("address")
+                .desc("the address of the elasticsearch index (omitting this the local loopback address will be used)")
+                .hasArg()
+                .argName("ADDRESS")
+                .build());
         options.addOption(Option.builder("i")
                 .longOpt("indexname")
                 .desc("the name of the elasticsearch index (omitting this the name '"
                         + targetIndexName + "' will be used)")
+                .hasArg()
+                .argName("NAME")
+                .build());
+        options.addOption(Option.builder("e")
+                .longOpt("esclustername")
+                .desc("the name of the elasticsearch cluster (omitting this the default name 'elasticsearch' will be "
+                        + "used)")
                 .hasArg()
                 .argName("NAME")
                 .build());
@@ -113,12 +141,14 @@ public class NeoFinderToES {
                 .build());
         options.addOption(Option.builder("t")
                 .longOpt("threads")
-                .desc("the maximum number of threads used (the default value is 5)")
+                .desc("the maximum number of threads used for reading (the default value is the number of available "
+                        + "CPUs/Cores)")
                 .hasArg()
                 .argName("MAX_THREADS")
                 .build());
 
         String fileOrDirName = "";
+        String address = "";
         try {
             final CommandLineParser parser = new DefaultParser();
             final CommandLine cmd = parser.parse(options, args);
@@ -127,6 +157,13 @@ public class NeoFinderToES {
                 fileOrDirName = argList.get(cmd.getArgList().size() - 1);
                 scanMode = !cmd.hasOption("c");
                 verbose = cmd.hasOption("v");
+                if (cmd.hasOption("a")) {
+                    address = cmd.getOptionValue("a");
+                    esAddress = InetAddress.getByName(address);
+                }
+                if (cmd.hasOption("e")) {
+                    esClusterName = cmd.getOptionValue("e");
+                }
                 if (cmd.hasOption("i")) {
                     targetIndexName = cmd.getOptionValue("i");
                 }
@@ -143,24 +180,29 @@ public class NeoFinderToES {
                 System.exit(0);
             }
 
-            esService = new ESService();
-            if (cmd.hasOption("n")) {
-                if (esService.indexExists(targetIndexName)) {
-                    esService.deleteIndex(targetIndexName);
-                }
-                if (!esService.createIndex(targetIndexName)) {
-                    System.out.println("Failed to create elasticsearch index");
-                    System.exit(3);
-                }
-                System.out.println("Adding to newly created index '" + targetIndexName + "'");
-            } else {
-                if (!esService.indexExists(targetIndexName)) {
+            esService = new ESService(esAddress, esClusterName);
+            System.out.println("Elasticsearch cluster: " + esAddress.toString() + " [" + esClusterName + ']');
+            if (esService.isClusterAvailable()) {
+                if (cmd.hasOption("n")) {
+                    if (esService.indexExists(targetIndexName)) {
+                        esService.deleteIndex(targetIndexName);
+                    }
                     if (!esService.createIndex(targetIndexName)) {
                         System.out.println("Failed to create elasticsearch index");
                         System.exit(3);
                     }
+                    System.out.println("Adding to newly created index '" + targetIndexName + "'");
+                } else {
+                    if (!esService.indexExists(targetIndexName)) {
+                        if (!esService.createIndex(targetIndexName)) {
+                            System.out.println("Failed to create elasticsearch index");
+                            System.exit(3);
+                        }
+                    }
+                    System.out.println("Adding to existing index '" + targetIndexName + "'");
                 }
-                System.out.println("Adding to existing index '" + targetIndexName + "'");
+            } else {
+                System.exit(7);
             }
         } catch (ParseException ex) {
             if (ex instanceof UnrecognizedOptionException) {
@@ -169,6 +211,9 @@ public class NeoFinderToES {
             }
             Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "failed to parse command line options", ex);
             System.exit(2);
+        } catch (UnknownHostException ex) {
+            System.out.println("Host '" + address + "' not found.");
+            System.exit(6);
         }
 
         Indexer indexer = null;
@@ -197,7 +242,7 @@ public class NeoFinderToES {
                     ForkJoinPool pool = new ForkJoinPool(maxThreads);
 
                     long startTime = new Date().getTime();
-                    
+
                     pool.invoke(crawler);
 
                     while (!queue.isEmpty()) {
@@ -222,7 +267,7 @@ public class NeoFinderToES {
                     } catch (ExecutionException ex) {
                         Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
                     }
-                    
+
                     singleThreadExecutor.shutdownNow();
                     pool.shutdownNow();
                 } else {
