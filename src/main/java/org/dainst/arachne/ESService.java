@@ -8,6 +8,7 @@ import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.action.admin.cluster.stats.ClusterStatsResponse;
 import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexResponse;
@@ -38,9 +39,9 @@ public class ESService {
         
         // test if we are connected to an es cluster
         try {
-            ClusterStatsResponse stats = client.admin().cluster().prepareClusterStats().get("1s");
+            ClusterStatsResponse stats = client.admin().cluster().prepareClusterStats().get("10s");
             clusterAvailable = true;
-        } catch (NoNodeAvailableException e) {
+        } catch (NoNodeAvailableException | ElasticsearchTimeoutException e) {
             System.out.println("Could not connect to elasticsearch cluster");
             clusterAvailable = false;
         }       
