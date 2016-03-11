@@ -1,0 +1,18 @@
+{  
+    "entry":{  
+        "properties":{  
+            "created":{  
+                "type":"date",
+                "format": "MM/dd/yyyy HH:mm:ss"
+            },
+            "lastChanged":{  
+                "type":"date",
+                "format": "MM/dd/yyyy HH:mm:ss"
+            },
+            "resourceType":{  
+                "type":"string",
+                "index":"not_analyzed"
+            }
+        }
+    }
+}
