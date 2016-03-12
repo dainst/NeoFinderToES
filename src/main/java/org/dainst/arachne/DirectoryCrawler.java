@@ -124,9 +124,11 @@ public class DirectoryCrawler extends RecursiveAction {
         }
         Path fileName = path.getFileName();
         fileName = fileName != null ? fileName : path;
+        
         return new ArchivedFileInfo()
                 .setName(fileName.toString())
                 .setPath(path.toString())
+                .setSizeInBytes(attributes.size())
                 .setSize(formatSize(attributes.size()))
                 .setCreated(DATE_FORMATTER.format(new Date(attributes.creationTime().toMillis())))
                 .setLastChanged(DATE_FORMATTER.format(new Date(attributes.lastModifiedTime().toMillis())))

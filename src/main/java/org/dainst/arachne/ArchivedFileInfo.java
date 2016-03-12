@@ -17,6 +17,7 @@ public class ArchivedFileInfo {
     private String path;
     
     private String size;
+    private long sizeInBytes;
 
     private String created;
     private String lastChanged;
@@ -99,5 +100,14 @@ public class ArchivedFileInfo {
     public String toString() {
         return getName() + ", " + getPath() + ", " + getSize() + ", " + getCreated() + ", " + getLastChanged() + ", " 
                 + getResourceType() + ", " + getVolume() + ", " + getCatalog();
+    }
+
+    public long getSizeInBytes() {
+        return sizeInBytes;
+    }
+
+    public ArchivedFileInfo setSizeInBytes(long sizeInBytes) {
+        this.sizeInBytes = sizeInBytes;
+        return this;
     }
 }

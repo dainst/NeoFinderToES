@@ -12,6 +12,9 @@
             "resourceType":{  
                 "type":"string",
                 "index":"not_analyzed"
+            },
+            "sizeInBytes":{
+                "type":"long"
             }
         }
     }

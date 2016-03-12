@@ -34,6 +34,9 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.UnrecognizedOptionException;
 import org.apache.commons.lang3.time.DurationFormatUtils;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.joda.time.format.DateTimeFormat;
 
 /*
  * Exit codes
@@ -247,19 +250,19 @@ public class NeoFinderToES {
                     // clean up if the execution is finished or terminated (for example by ctrl+c)
                     Runtime.getRuntime().addShutdownHook(new Thread() {
                         @Override
-                        public void run () {
+                        public void run() {
                             singleThreadExecutor.shutdownNow();
                             pool.shutdownNow();
                             esService.close();
                         }
                     });
-                    
+
                     try {
                         pool.invoke(crawler);
                     } catch (CancellationException e) {
                         // nothing to do here
                     }
-                    
+
                     while (!queue.isEmpty()) {
                         try {
                             Thread.sleep(10);
@@ -339,7 +342,7 @@ public class NeoFinderToES {
                         lineContents[i] = lineContents[i].trim();
                     }
 
-                    if (lineContents.length < 12) {
+                    if (lineContents.length < 8) {
                         skippedCounter++;
                         continue;
                     }
@@ -374,13 +377,14 @@ public class NeoFinderToES {
 
                         String currentCreated = (indexCreated != -1) ? lineContents[indexCreated] : null;
                         String currentChanged = (indexChanged != -1) ? lineContents[indexChanged] : null;
-
+                        
                         ArchivedFileInfo fileInfo = new ArchivedFileInfo()
                                 .setName(currentName)
                                 .setPath(currentPath)
+                                .setSizeInBytes(getSizeInByteFromString(currentSize))
                                 .setSize(currentSize)
-                                .setCreated(currentCreated)
-                                .setLastChanged(currentChanged)
+                                .setCreated(convertDateFormat(currentCreated))
+                                .setLastChanged(convertDateFormat(currentChanged))
                                 .setCatalog(currentCatalog)
                                 .setVolume(currentVolume)
                                 .setResourceType(currentType);
@@ -448,7 +452,7 @@ public class NeoFinderToES {
             } else if (lineContents[i].compareTo("Änderungsdatum") == 0 || lineContents[i].compareTo("Date Modified") == 0) {
                 indexChanged = i;
             } else if (lineContents[i].compareTo("Art") == 0 || lineContents[i].compareTo("Kind") == 0
-                    || lineContents[i].compareTo("Media") == 0) {
+                    || lineContents[i].compareTo("Media-Info") == 0) {
                 indexType = i;
             } else if (lineContents[i].compareTo("Katalog") == 0 || lineContents[i].compareTo("Catalog") == 0) {
                 indexCatalog = i;
@@ -458,4 +462,22 @@ public class NeoFinderToES {
         }
     }
 
+    private static long getSizeInByteFromString(String currentSize) throws NumberFormatException {
+        String sizeInBtyes = currentSize.substring(currentSize.indexOf("(") + 1);
+        sizeInBtyes = sizeInBtyes.substring(0, sizeInBtyes.indexOf(" B"));
+        sizeInBtyes = sizeInBtyes.replace(".", "");
+        return Long.parseLong(sizeInBtyes);
+    }
+
+    public static String convertDateFormat(final String date) {
+        try {
+            DateTime dateTime = DateTimeFormat.forPattern("YYYY-MM-dd HH:mm:ss")
+                    .parseDateTime(date)
+                    .withZone(DateTimeZone.getDefault());
+
+            return DateTimeFormat.forPattern("MM/dd/yyyy HH:mm:ss").print(dateTime);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
 }
