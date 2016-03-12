@@ -220,9 +220,9 @@ public class NeoFinderToES {
             System.exit(6);
         }
 
-        Indexer indexer = null;
+        File scanDirectory;
         try {
-            File scanDirectory = new File(fileOrDirName).getCanonicalFile();
+            scanDirectory = new File(fileOrDirName).getCanonicalFile();
 
             if (!scanDirectory.exists()) {
                 System.out.println("Source '" + fileOrDirName + "' does not exist.");
@@ -231,61 +231,7 @@ public class NeoFinderToES {
 
             if (scanDirectory.isDirectory()) {
                 if (scanMode) {
-                    System.out.format("Scanning %s ...\n", scanDirectory);
-
-                    BlockingQueue<ArchivedFileInfo> queue = new LinkedBlockingQueue<>();
-
-                    indexer = new Indexer(scanDirectory, targetIndexName, esService, queue, verbose);
-                    ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
-                    Future<Long> indexedFiles = (Future<Long>) singleThreadExecutor.submit(indexer);
-
-                    DirectoryCrawler crawler;
-
-                    crawler = new DirectoryCrawler(scanDirectory.toPath().toRealPath(LinkOption.NOFOLLOW_LINKS),
-                            mimeInfo, queue);
-                    ForkJoinPool pool = new ForkJoinPool(maxThreads);
-
-                    long startTime = new Date().getTime();
-
-                    // clean up if the execution is finished or terminated (for example by ctrl+c)
-                    Runtime.getRuntime().addShutdownHook(new Thread() {
-                        @Override
-                        public void run() {
-                            singleThreadExecutor.shutdownNow();
-                            pool.shutdownNow();
-                            esService.close();
-                        }
-                    });
-
-                    try {
-                        pool.invoke(crawler);
-                    } catch (CancellationException e) {
-                        // nothing to do here
-                    }
-
-                    while (!queue.isEmpty()) {
-                        try {
-                            Thread.sleep(10);
-                        } catch (InterruptedException ex) {
-                            Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-                        }
-                    }
-
-                    indexer.terminate();
-
-                    System.out.println("Done.");
-                    long endTime = new Date().getTime();
-                    String timeTaken = DurationFormatUtils.formatDuration((endTime - startTime), "HH:mm:ss");
-                    System.out.println("Elapsed time: " + timeTaken);
-                    try {
-                        System.out.println("Indexed files: " + indexedFiles.get());
-                    } catch (InterruptedException ex) {
-                        Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-                        Thread.currentThread().interrupt();
-                    } catch (ExecutionException ex) {
-                        Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
-                    }
-                    singleThreadExecutor.shutdownNow();
+                    scanFileSystem(scanDirectory);
                 } else {
                     String[] files = scanDirectory.list();
                     for (final String file : files) {
@@ -298,13 +244,76 @@ public class NeoFinderToES {
                 printCSVStats();
             }
         } catch (IOException ex) {
-            if (indexer != null) {
-                indexer.terminate();
-            }
             System.exit(5);
         }
 
         esService.close();
+    }
+
+    private static void scanFileSystem(final File scanDirectory) throws IOException {
+        Indexer indexer = null;
+        try {
+            System.out.format("Scanning %s ...\n", scanDirectory);
+
+            BlockingQueue<ArchivedFileInfo> queue = new LinkedBlockingQueue<>();
+
+            indexer = new Indexer(scanDirectory, targetIndexName, esService, queue, verbose);
+            ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
+            Future<Long> indexedFiles = (Future<Long>) singleThreadExecutor.submit(indexer);
+
+            DirectoryCrawler crawler;
+
+            crawler = new DirectoryCrawler(scanDirectory.toPath().toRealPath(LinkOption.NOFOLLOW_LINKS),
+                    mimeInfo, queue);
+            ForkJoinPool pool = new ForkJoinPool(maxThreads);
+
+            long startTime = new Date().getTime();
+
+            // clean up if the execution is finished or terminated (for example by ctrl+c)
+            Runtime.getRuntime().addShutdownHook(new Thread() {
+                @Override
+                public void run() {
+                    singleThreadExecutor.shutdownNow();
+                    pool.shutdownNow();
+                    esService.close();
+                }
+            });
+
+            try {
+                pool.invoke(crawler);
+            } catch (CancellationException e) {
+                // nothing to do here
+            }
+
+            while (!queue.isEmpty()) {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException ex) {
+                    Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+
+            indexer.terminate();
+
+            System.out.println("Done.");
+            long endTime = new Date().getTime();
+            String timeTaken = DurationFormatUtils.formatDuration((endTime - startTime), "HH:mm:ss");
+            System.out.println("Elapsed time: " + timeTaken);
+            try {
+                System.out.println("Indexed files: " + indexedFiles.get());
+            } catch (InterruptedException ex) {
+                Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException ex) {
+                Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
+            }
+            singleThreadExecutor.shutdownNow();
+        } catch (IOException ex) {
+            if (indexer != null) {
+                indexer.terminate();
+            }
+            throw ex;
+        }
     }
 
     private static void printCSVStats() {
@@ -314,7 +323,6 @@ public class NeoFinderToES {
     }
 
     private static void readCSV(String path) {
-
         if (!(path.endsWith(".csv") || path.endsWith(".txt"))) {
             System.out.println("Skipping " + path + " (no csv or txt)");
             return;
@@ -377,7 +385,7 @@ public class NeoFinderToES {
 
                         String currentCreated = (indexCreated != -1) ? lineContents[indexCreated] : null;
                         String currentChanged = (indexChanged != -1) ? lineContents[indexChanged] : null;
-                        
+
                         ArchivedFileInfo fileInfo = new ArchivedFileInfo()
                                 .setName(currentName)
                                 .setPath(currentPath)
