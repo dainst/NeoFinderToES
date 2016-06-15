@@ -1,7 +1,7 @@
 {  
     "entry":{  
+        "_index": { "enabled" : true },
         "properties":{
-            "_index": { "enabled" : true },
             "created":{  
                 "type":"date",
                 "format": "MM/dd/yyyy HH:mm:ss"
