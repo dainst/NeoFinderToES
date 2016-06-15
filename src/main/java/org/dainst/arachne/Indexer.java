@@ -62,6 +62,7 @@ public class Indexer implements Callable<Long> {
     public void index(final ArchivedFileInfo fileInfo) {
         fileInfo.setVolume(volume);
         fileInfo.setCatalog(hostname);
+        fileInfo.setIndex(indexName);
         
         final ObjectMapper mapper = new ObjectMapper();
 

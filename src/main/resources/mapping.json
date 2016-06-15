@@ -1,6 +1,5 @@
 {  
     "entry":{  
-        "_index": { "enabled" : true },
         "properties":{
             "created":{  
                 "type":"date",
@@ -11,6 +10,10 @@
                 "format": "MM/dd/yyyy HH:mm:ss"
             },
             "resourceType":{  
+                "type":"string",
+                "index":"not_analyzed"
+            },
+            "index":{  
                 "type":"string",
                 "index":"not_analyzed"
             },

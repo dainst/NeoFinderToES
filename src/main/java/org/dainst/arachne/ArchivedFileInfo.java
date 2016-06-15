@@ -12,6 +12,8 @@ public class ArchivedFileInfo {
 
     private String catalog;
     private String volume;
+    
+    private String index;
 
     private String name;
     private String path;
@@ -42,6 +44,15 @@ public class ArchivedFileInfo {
         return this;
     }
 
+    public String getIndex() {
+        return index;
+    }
+
+    public ArchivedFileInfo setIndex(String index) {
+        this.index = index;
+        return this;
+    }
+    
     public String getName() {
         return name;
     }
@@ -99,7 +110,7 @@ public class ArchivedFileInfo {
     @Override
     public String toString() {
         return getName() + ", " + getPath() + ", " + getSize() + ", " + getCreated() + ", " + getLastChanged() + ", " 
-                + getResourceType() + ", " + getVolume() + ", " + getCatalog();
+                + getResourceType() + ", " + getVolume() + ", " + getCatalog() + ", " + getIndex();
     }
 
     public long getSizeInBytes() {

@@ -395,6 +395,7 @@ public class NeoFinderToES {
                                 .setLastChanged(convertDateFormat(currentChanged))
                                 .setCatalog(currentCatalog)
                                 .setVolume(currentVolume)
+                                .setIndex(targetIndexName)
                                 .setResourceType(currentType);
 
                         esImport(fileInfo);
