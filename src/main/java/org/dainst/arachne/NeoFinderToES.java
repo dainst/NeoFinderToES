@@ -220,6 +220,11 @@ public class NeoFinderToES {
             System.exit(6);
         }
 
+        final ProgressRotating progressIndicator = new ProgressRotating();
+        if (!verbose) {
+            progressIndicator.start();
+        }
+        
         File scanDirectory;
         try {
             scanDirectory = new File(fileOrDirName).getCanonicalFile();
@@ -248,6 +253,10 @@ public class NeoFinderToES {
         }
 
         esService.close();
+        
+        if (!verbose) {
+            progressIndicator.showProgress = false;
+        }
     }
 
     private static void scanFileSystem(final File scanDirectory) throws IOException {
