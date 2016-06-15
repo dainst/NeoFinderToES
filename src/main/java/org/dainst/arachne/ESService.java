@@ -67,6 +67,8 @@ public class ESService {
             }
             setMapping(indexName);
         } catch (ElasticsearchException e) {
+            Logger.getLogger(ESService.class.getName()).log(Level.SEVERE, "Failed to create index ''{0}''. Cause: {1} "
+                    , new Object[]{indexName, e.getDetailedMessage()});
             return false;
         }
         return true;
