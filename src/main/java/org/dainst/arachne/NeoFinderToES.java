@@ -221,19 +221,19 @@ public class NeoFinderToES {
         }
 
         final ProgressRotating progressIndicator = new ProgressRotating();
-        if (!verbose) {
-            progressIndicator.start();
-        }
-        
-        File scanDirectory;
+        final File scanDirectory;
         try {
             scanDirectory = new File(fileOrDirName).getCanonicalFile();
 
             if (!scanDirectory.exists()) {
-                System.out.println("Source '" + fileOrDirName + "' does not exist.");
+                System.out.println("\rSource '" + fileOrDirName + "' does not exist.");
                 System.exit(4);
             }
 
+            if (!verbose) {
+                progressIndicator.start();
+            }
+            
             if (scanDirectory.isDirectory()) {
                 if (scanMode) {
                     scanFileSystem(scanDirectory);
@@ -255,14 +255,14 @@ public class NeoFinderToES {
         esService.close();
         
         if (!verbose) {
-            progressIndicator.showProgress = false;
+            progressIndicator.terminate();
         }
     }
 
     private static void scanFileSystem(final File scanDirectory) throws IOException {
         Indexer indexer = null;
         try {
-            System.out.format("Scanning %s ...\n", scanDirectory);
+            System.out.format("\rScanning %s ...\n", scanDirectory);
 
             BlockingQueue<ArchivedFileInfo> queue = new LinkedBlockingQueue<>();
 
@@ -304,12 +304,12 @@ public class NeoFinderToES {
 
             indexer.terminate();
 
-            System.out.println("Done.");
+            System.out.println("\rDone.");
             long endTime = new Date().getTime();
             String timeTaken = DurationFormatUtils.formatDuration((endTime - startTime), "HH:mm:ss");
-            System.out.println("Elapsed time: " + timeTaken);
+            System.out.println("\rElapsed time: " + timeTaken);
             try {
-                System.out.println("Indexed files: " + indexedFiles.get());
+                System.out.println("\rIndexed files: " + indexedFiles.get());
             } catch (InterruptedException ex) {
                 Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, null, ex);
                 Thread.currentThread().interrupt();
@@ -326,23 +326,23 @@ public class NeoFinderToES {
     }
 
     private static void printCSVStats() {
-        System.out.println("Done. Lines processed: " + inputLineCounter);
-        System.out.println(skippedCounter + " lines skipped");
-        System.out.println(fileCounter + " entries");
+        System.out.println("\rDone. Lines processed: " + inputLineCounter);
+        System.out.println("\r" + skippedCounter + " lines skipped");
+        System.out.println("\r" + fileCounter + " entries");
     }
 
     private static void readCSV(String path) {
         if (!(path.endsWith(".csv") || path.endsWith(".txt"))) {
-            System.out.println("Skipping " + path + " (no csv or txt)");
+            System.out.println("\rSkipping " + path + " (no csv or txt)");
             return;
         }
 
         int currentColumns = -1;
         isFirstLine = true;
-        System.out.println("New file: " + path);
+        System.out.println("\rCatalog file: " + path);
         File file = new File(path);
         if (!file.canRead()) {
-            System.out.println("Unable to read file: " + path);
+            System.out.println("\rUnable to read file: " + path);
             return;
         }
 
@@ -371,9 +371,9 @@ public class NeoFinderToES {
                     }
 
                     if (lineContents.length > currentColumns) {
-                        parserLog.println("Possible additional tabs:");
-                        parserLog.println(currentLine);
-                        parserLog.println(lineContents.length + ", expected columns: " + currentColumns);
+                        parserLog.println("\rPossible additional tabs:");
+                        parserLog.println("\r" + currentLine);
+                        parserLog.println("\r" + lineContents.length + ", expected columns: " + currentColumns);
                         continue;
                     }
 
@@ -410,10 +410,10 @@ public class NeoFinderToES {
                         esImport(fileInfo);
 
                     } catch (ArrayIndexOutOfBoundsException e) {
-                        parserLog.println("ArrayIndexOutOfBoundsException at line:");
-                        parserLog.println(currentLine);
-                        parserLog.println("Indices:");
-                        parserLog.println(indexName + " " + indexPath + " " + indexSize + " "
+                        parserLog.println("\rArrayIndexOutOfBoundsException at line:");
+                        parserLog.println("\r" + currentLine);
+                        parserLog.println("\rIndices:");
+                        parserLog.println("\r" + indexName + " " + indexPath + " " + indexSize + " "
                                 + indexCreated + " " + indexChanged + " "
                                 + indexType + " " + indexCatalog + " "
                                 + indexVolume);
@@ -432,7 +432,10 @@ public class NeoFinderToES {
 
         try {
             byte[] jsonAsBytes = mapper.writeValueAsBytes(currentFile);
-
+            if (verbose) {
+                System.out.println(mapper.writeValueAsString(currentFile));
+            }
+            
             String id = esService.addToIndex(targetIndexName, jsonAsBytes);
             if (id == null || id.isEmpty()) {
                 Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "Failed to add entry {0}", mapper.writeValueAsString(currentFile));
