@@ -35,3 +35,14 @@ neofindertoes FILE_OR_DIRECTORY
  -v,--verbose                 show files being processed
 ```
 
+## Exit codes
+```
+0 - success 
+1 - unrecognized command line option 
+2 - failed to parse command line 
+3 - failed to create elasticsearch index 
+4 - file or directory does not exist 
+5 - io exception 
+6 - elasticsearch host not found
+7 - could not connect to elasticsearch cluster
+```
