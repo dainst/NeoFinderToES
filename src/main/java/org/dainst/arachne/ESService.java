@@ -35,8 +35,10 @@ public class ESService {
     private final TransportClient client;
 
     private boolean clusterAvailable;
+    
+    private final String indexName;
 
-    public ESService(final InetAddress address, final String clusterName) {
+    public ESService(final InetAddress address, final String clusterName, final String indexName) {
         final InetSocketAddress esAddress = new InetSocketAddress(address, 9300);
         client = TransportClient.builder()
                 .settings(Settings.builder()
@@ -52,20 +54,22 @@ public class ESService {
             System.out.println("Could not connect to elasticsearch cluster");
             clusterAvailable = false;
         }
+        
+        this.indexName = indexName;
     }
 
     public void close() {
         client.close();
     }
 
-    public boolean createIndex(final String indexName) {
+    public boolean createIndex() {
         try {
             final CreateIndexResponse createResponse = client.admin().indices().prepareCreate(indexName).execute().actionGet();
             if (!createResponse.isAcknowledged()) {
                 Logger.getLogger(ESService.class.getName()).log(Level.SEVERE, "Failed to create index ''{0}''", indexName);
                 return false;
             }
-            setMapping(indexName);
+            setMapping();
         } catch (ElasticsearchException e) {
             Logger.getLogger(ESService.class.getName()).log(Level.SEVERE, "Failed to create index ''{0}''. Cause: {1} "
                     , new Object[]{indexName, e.getDetailedMessage()});
@@ -74,7 +78,7 @@ public class ESService {
         return true;
     }
 
-    public boolean deleteIndex(final String indexName) {
+    public boolean deleteIndex() {
         try {
             final DeleteIndexResponse delete = client.admin().indices().prepareDelete(indexName).execute().actionGet();
             if (!delete.isAcknowledged()) {
@@ -87,7 +91,7 @@ public class ESService {
         return true;
     }
 
-    public boolean indexExists(final String indexName) {
+    public boolean indexExists() {
         try {
             final IndicesExistsResponse existsResponse = client.admin().indices().prepareExists(indexName).execute().actionGet();
             return existsResponse.isExists();
@@ -96,7 +100,7 @@ public class ESService {
         }
     }
 
-    public String addToIndex(final String indexName, final byte[] source) {
+    public String addToIndex(final byte[] source) {
         final IndexResponse index = client.prepareIndex(indexName, "entry").setSource(source).get();
         return index.getId();
     }
@@ -104,8 +108,12 @@ public class ESService {
     public boolean isClusterAvailable() {
         return clusterAvailable;
     }
+    
+    public String getIndexName() {
+        return indexName;
+    }
 
-    private String setMapping(final String indexName) {
+    private String setMapping() {
         String message = ES_MAPPING_FAILURE;
 
         final String mapping = getJsonFromFile(ES_MAPPING_FILE);

@@ -25,13 +25,12 @@ public class Indexer implements Callable<Long> {
     private String hostname;
     
     private final ESService esService;
-    private final String indexName;
-    
+        
     private final boolean verbose;
 
     private long indexedFiles = 0;
     
-    public Indexer(final File volume, final String indexName, final ESService esService, final BlockingQueue queue,
+    public Indexer(final File volume, final ESService esService, final BlockingQueue queue,
             final boolean verbose) {
         this.queue = queue;
         this.volume = volume.toString();
@@ -42,7 +41,6 @@ public class Indexer implements Callable<Long> {
         }
         
         this.esService = esService;
-        this.indexName = indexName;
         this.verbose = verbose;
     }
 
@@ -62,7 +60,7 @@ public class Indexer implements Callable<Long> {
     public void index(final ArchivedFileInfo fileInfo) {
         fileInfo.setVolume(volume);
         fileInfo.setCatalog(hostname);
-        fileInfo.setIndex(indexName);
+        fileInfo.setIndex(esService.getIndexName());
         
         final ObjectMapper mapper = new ObjectMapper();
 
@@ -72,7 +70,7 @@ public class Indexer implements Callable<Long> {
                 System.out.println(mapper.writeValueAsString(fileInfo));
             }
             
-            String id = esService.addToIndex(indexName, jsonAsBytes);
+            String id = esService.addToIndex(jsonAsBytes);
             if (id == null || id.isEmpty()) {
                 Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, 
                         "Failed to add entry {0}", mapper.writeValueAsString(fileInfo));
