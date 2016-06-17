@@ -63,7 +63,7 @@ public class NeoFinderToES {
         options.addOption("c", "catalog", false, "read cdfinder/neofinder catalog files");
         options.addOption("n", "newindex", false, "create a new elasticsearch index (if an old one with the same name exists it "
                 + "will be deleted");
-        options.addOption("v", "verbose", false, "show files being processed");
+        options.addOption("v", "verbose", false, "show JSON objects that are added to the index");
         options.addOption(Option.builder("a")
                 .longOpt("address")
                 .desc("the address of the elasticsearch index (omitting this the local loopback address will be used)")
@@ -101,14 +101,13 @@ public class NeoFinderToES {
                 .argName("MAX_THREADS")
                 .build());
 
-        String fileOrDirName = "";
         String address = "";
+        List<String> argList = null;
         try {
             final CommandLineParser parser = new DefaultParser();
             final CommandLine cmd = parser.parse(options, args);
-            List<String> argList = cmd.getArgList();
+            argList = cmd.getArgList();
             if (!argList.isEmpty()) {
-                fileOrDirName = argList.get(cmd.getArgList().size() - 1);
                 scanMode = !cmd.hasOption("c");
                 verbose = cmd.hasOption("v");
                 if (cmd.hasOption("a")) {
@@ -130,7 +129,8 @@ public class NeoFinderToES {
                 }
             } else {
                 HelpFormatter formatter = new HelpFormatter();
-                formatter.printHelp("neofindertoes FILE_OR_DIRECTORY", options);
+                formatter.printHelp("neofindertoes [options] FILE_OR_DIRECTORY1 [FILE_OR_DIRECTORY2 "
+                        + "[FILE_OR_DIRECTORY3] ...]\nOptions:", options);
                 System.exit(0);
             }
 
@@ -171,36 +171,39 @@ public class NeoFinderToES {
         }
 
         final ProgressRotating progressIndicator = new ProgressRotating();
-        final File scanDirectory;
-        try {
-            scanDirectory = new File(fileOrDirName).getCanonicalFile();
+        for (String filename : argList) {
+            try {
+                File scanDirectory = new File(filename).getCanonicalFile();
+                
+                if (!scanDirectory.exists()) {
+                    System.out.println("\rSource '" + filename + "' does not exist.");
+                    System.exit(4);
+                }
 
-            if (!scanDirectory.exists()) {
-                System.out.println("\rSource '" + fileOrDirName + "' does not exist.");
-                System.exit(4);
-            }
+                final DataImporter dataImporter = new DataImporter(esService);
+                if (!verbose && !progressIndicator.isAlive()) {
+                    progressIndicator.start();
+                }
 
-            final DataImporter dataImporter = new DataImporter(esService);
-            if (!verbose) {
-                progressIndicator.start();
-            }
-                       
-            if (scanDirectory.isDirectory()) {
-                if (scanMode) {
-                    dataImporter.scanFileSystem(scanDirectory, maxThreads, mimeInfo, verbose);
+                if (scanDirectory.isDirectory()) {
+                    if (scanMode) {
+                        dataImporter.scanFileSystem(scanDirectory, maxThreads, mimeInfo, verbose);
+                    } else {
+                        String[] files = scanDirectory.list();
+                        for (final String file : files) {
+                            dataImporter.readCSV(scanDirectory + "/" + file, verbose);
+                        }
+                    }
                 } else {
-                    String[] files = scanDirectory.list();
-                    for (final String file : files) {
-                        dataImporter.readCSV(scanDirectory + "/" + file, verbose);
+                    if (!scanMode) {
+                        dataImporter.readCSV(scanDirectory.getAbsolutePath(), verbose);
                     }
                 }
-            } else {
-                dataImporter.readCSV(scanDirectory.getAbsolutePath(), verbose);
+            } catch (IOException ex) {
+                System.exit(5);
             }
-        } catch (IOException ex) {
-            System.exit(5);
         }
-
+        
         esService.close();
         
         if (!verbose) {

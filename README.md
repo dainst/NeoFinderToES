@@ -7,7 +7,8 @@
 ## Usage
 
 ```
-neofindertoes FILE_OR_DIRECTORY
+neofindertoes [options] FILE_OR_DIRECTORY1 [FILE_OR_DIRECTORY2 [FILE_OR_DIRECTORY3] ...]
+Options:
  -a,--address <ADDRESS>       the address of the elasticsearch index
                               (omitting this the local loopback address
                               will be used)
@@ -32,7 +33,8 @@ neofindertoes FILE_OR_DIRECTORY
  -t,--threads <MAX_THREADS>   the maximum number of threads used for
                               reading (the default value is the number of
                               available CPUs/Cores)
- -v,--verbose                 show files being processed
+ -v,--verbose                 show JSON objects that are added to the
+                              index
 ```
 
 ## Exit codes
