@@ -4,9 +4,11 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Arrays;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -23,8 +25,7 @@ import org.apache.commons.cli.UnrecognizedOptionException;
  * 1 unrecognized command line option 
  * 2 failed to parse command line 
  * 3 failed to create elasticsearch index 
- * 4 file or directory does not exist 
- * 5 io exception 
+ * 4 unknown field given for -I
  * 6 elasticsearch host not found
  * 7 could not connect to elasticsearch cluster
  */
@@ -47,10 +48,12 @@ public class NeoFinderToES {
     private static int mimeInfo = 1;
 
     private static int maxThreads = 5;
+    
+    private static Set<String> ignoreFields;
 
-    private static String newline = System.getProperty("line.separator");
+    private static final String newline = System.getProperty("line.separator");
 
-    private static int availableCPUs = Runtime.getRuntime().availableProcessors();
+    private static final int availableCPUs = Runtime.getRuntime().availableProcessors();
 
     private static boolean verbose = false;
 
@@ -76,6 +79,13 @@ public class NeoFinderToES {
                         + esIndexName + "' will be used)")
                 .hasArg()
                 .argName("NAME")
+                .build());
+        options.addOption(Option.builder("I")
+                .longOpt("ignore")
+                .desc("The fields to ignore potentially invalid data for:" + newline)
+                .hasArgs()
+                .valueSeparator(',')
+                .argName("FIELDLIST")
                 .build());
         options.addOption(Option.builder("e")
                 .longOpt("esclustername")
@@ -127,6 +137,16 @@ public class NeoFinderToES {
                 if (cmd.hasOption("m")) {
                     mimeInfo = Integer.valueOf(cmd.getOptionValue("m"));
                 }
+                if (cmd.hasOption("I")) {
+                    ignoreFields = Arrays.stream(cmd.getOptionValues("I")).collect(Collectors.toSet());
+                    Map<String, List<String>> tokenMap = Mapping.getTokenMap();
+                    for (String field: ignoreFields) {
+                        if (!tokenMap.containsKey(field)) {
+                            System.out.println("Unknown field '" + field + "'.");
+                            System.exit(4);
+                        }
+                    }
+                }
             } else {
                 HelpFormatter formatter = new HelpFormatter();
                 formatter.printHelp("neofindertoes [options] FILE_OR_DIRECTORY1 [FILE_OR_DIRECTORY2 "
@@ -145,7 +165,7 @@ public class NeoFinderToES {
                         System.out.println("Failed to create elasticsearch index");
                         System.exit(3);
                     }
-                    System.out.println("Adding to newly created index '" + esIndexName + "'");
+                    System.out.println("Adding to newly created index '" + esIndexName + "'\n");
                 } else {
                     if (!esService.indexExists()) {
                         if (!esService.createIndex()) {
@@ -153,7 +173,7 @@ public class NeoFinderToES {
                             System.exit(3);
                         }
                     }
-                    System.out.println("Adding to existing index '" + esIndexName + "'");
+                    System.out.println("Adding to existing index '" + esIndexName + "'\n");
                 }
             } else {
                 System.exit(7);
@@ -163,7 +183,7 @@ public class NeoFinderToES {
                 System.out.println(ex.getMessage());
                 System.exit(1);
             }
-            Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, "failed to parse command line options", ex);
+            System.out.println("Failed to parse command line options.\n" + ex.getMessage());
             System.exit(2);
         } catch (UnknownHostException ex) {
             System.out.println("Host '" + address + "' not found.");
@@ -176,37 +196,36 @@ public class NeoFinderToES {
                 File scanDirectory = new File(filename).getCanonicalFile();
                 
                 if (!scanDirectory.exists()) {
-                    System.out.println("\rSource '" + filename + "' does not exist.");
-                    System.exit(4);
+                    System.err.println("\rSource '" + filename + "' does not exist.");
+                    continue;
                 }
 
-                final DataImporter dataImporter = new DataImporter(esService);
                 if (!verbose && !progressIndicator.isAlive()) {
                     progressIndicator.start();
                 }
 
                 if (scanDirectory.isDirectory()) {
                     if (scanMode) {
-                        dataImporter.scanFileSystem(scanDirectory, maxThreads, mimeInfo, verbose);
+                        new FileSystemScanner(esService).scan(scanDirectory, maxThreads, mimeInfo, verbose);
                     } else {
                         String[] files = scanDirectory.list();
                         for (final String file : files) {
-                            dataImporter.readCSV(scanDirectory + "/" + file, verbose);
+                            new CsvReader(esService).read(scanDirectory + "/" + file, ignoreFields, verbose);
                         }
                     }
                 } else {
                     if (!scanMode) {
-                        dataImporter.readCSV(scanDirectory.getAbsolutePath(), verbose);
+                        new CsvReader(esService).read(scanDirectory.getAbsolutePath(), ignoreFields, verbose);
                     }
                 }
             } catch (IOException ex) {
-                System.exit(5);
+                System.err.println("\rCould not read '" + filename + "'.");
             }
         }
         
         esService.close();
         
-        if (!verbose) {
+        if (!verbose && progressIndicator.isAlive()) {
             progressIndicator.terminate();
         }
     }
