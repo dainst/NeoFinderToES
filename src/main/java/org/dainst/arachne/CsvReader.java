@@ -132,7 +132,7 @@ public class CsvReader {
             System.out.println("\rFile '" + path + "' has " + potentiallyInvalidDataLines + " potentially invalid lines.");
         }
         
-        if (parsingErrors) {
+        if (parsingErrors || (potentiallyInvalidDataLines > 0)) {
             System.out.println("\rFile '" + path + "' has " + invalidDataLines + " invalid lines.");
             System.out.println("\rNo data imported.");
             return false;
