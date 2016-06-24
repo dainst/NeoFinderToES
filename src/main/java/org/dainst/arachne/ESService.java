@@ -100,8 +100,8 @@ public class ESService {
         }
     }
 
-    public String addToIndex(final byte[] source) {
-        final IndexResponse index = client.prepareIndex(indexName, "entry").setSource(source).get();
+    public String addToIndex(final byte[] source, final String id) {
+        final IndexResponse index = client.prepareIndex(indexName, "entry", id).setSource(source).get();
         return index.getId();
     }
 

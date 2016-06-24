@@ -138,6 +138,9 @@ public class CsvReader {
             return false;
         }
         
+        for (ArchivedFileInfo fileInfo: fileInfoList) {
+            esImport(fileInfo, verbose);
+        }
         System.out.println("\r" + fileInfoList.size() + " records imported.");
         return true;
     }
@@ -191,22 +194,22 @@ public class CsvReader {
         return null;
     }
     
-    private void esImport(final ArchivedFileInfo currentFile, final boolean verbose) {
+    private void esImport(final ArchivedFileInfo fileInfo, final boolean verbose) {
 
         final ObjectMapper mapper = new ObjectMapper();
 
         try {
-            byte[] jsonAsBytes = mapper.writeValueAsBytes(currentFile);
+            byte[] jsonAsBytes = mapper.writeValueAsBytes(fileInfo);
             if (verbose) {
-                System.out.println(mapper.writeValueAsString(currentFile));
+                System.out.println(mapper.writeValueAsString(fileInfo));
             }
             
-            String id = esService.addToIndex(jsonAsBytes);
+            String id = esService.addToIndex(jsonAsBytes, fileInfo.getPath());
             if (id == null || id.isEmpty()) {
-                System.err.println("Failed to add entry " + mapper.writeValueAsString(currentFile));
+                System.err.println("Failed to add entry " + mapper.writeValueAsString(fileInfo));
             }
         } catch (JsonProcessingException ex) {
-            System.err.println("Failed to map entry to JSON " + currentFile);
+            System.err.println("Failed to map entry to JSON " + fileInfo);
             System.err.println("Cause: " + ex.getMessage());
         }
 

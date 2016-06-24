@@ -172,6 +172,7 @@ public class ArchivedFileInfo {
         String sizeInBytes = size.substring(size.indexOf("(") + 1);
         sizeInBytes = sizeInBytes.substring(0, sizeInBytes.indexOf(" B"));
         sizeInBytes = sizeInBytes.replace(".", "");
+        sizeInBytes = sizeInBytes.replace(",", "");
         return Long.parseLong(sizeInBytes);
     }
 
@@ -180,6 +181,7 @@ public class ArchivedFileInfo {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern(""
                 + "[dd.MM.yyyy[ HH:mm:ss]]"
                 + "[yyyy-MM-dd[ HH:mm:ss]]"
+                + "[MM/dd/yyyy[ HH:mm:ss]]"
         );
 
         try {

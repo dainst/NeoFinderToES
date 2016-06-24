@@ -70,7 +70,7 @@ public class Indexer implements Callable<Long> {
                 System.out.println(mapper.writeValueAsString(fileInfo));
             }
             
-            String id = esService.addToIndex(jsonAsBytes);
+            String id = esService.addToIndex(jsonAsBytes, fileInfo.getPath());
             if (id == null || id.isEmpty()) {
                 Logger.getLogger(NeoFinderToES.class.getName()).log(Level.SEVERE, 
                         "Failed to add entry {0}", mapper.writeValueAsString(fileInfo));
