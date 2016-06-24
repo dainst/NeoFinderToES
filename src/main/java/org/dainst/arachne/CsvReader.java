@@ -74,8 +74,8 @@ public class CsvReader {
         // create index map
         indexMap = new HashMap<>();
         int maxIndex = -1;
+        Map<String, List<String>> tokenMap = Mapping.getTokenMap();
         if (columns != null) {
-            Map<String, List<String>> tokenMap = Mapping.getTokenMap();
             Iterator<Map.Entry<String, List<String>>> iterator = tokenMap.entrySet().iterator();
             while (iterator.hasNext()) {
                 Map.Entry<String, List<String>> next = iterator.next();
@@ -92,7 +92,12 @@ public class CsvReader {
             }
             System.out.println();
         }
-                        
+        
+        if (indexMap.keySet().size() != tokenMap.keySet().size()) {
+            System.err.println("Invalid header: " + columns);
+            throw new IOException("Invalid header.");
+        }       
+        
         // read data
         final int minLength = maxIndex + 1;
         minLineLength = minLength;

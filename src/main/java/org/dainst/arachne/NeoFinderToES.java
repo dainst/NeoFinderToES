@@ -232,7 +232,7 @@ public class NeoFinderToES {
                     }
                 }
             } catch (IOException ex) {
-                System.err.println("Could not read '" + filename + "'.");
+                System.out.println("Could not read '" + filename + "'.");
             }
         }
         
