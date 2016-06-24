@@ -92,6 +92,7 @@ public class NeoFinderToES {
                 .longOpt("ignore")
                 .desc("the field or fields to ignore potentially invalid data for" + newline 
                         + "if multiple fields are specified they must be comma separated" + newline
+                        + "(use with care as this may create records that will miss the specified fields)" + newline
                         + "(only works with option -c)")
                 .hasArgs()
                 .valueSeparator(',')
