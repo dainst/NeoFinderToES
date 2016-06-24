@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,13 +50,15 @@ public class NeoFinderToES {
 
     private static int maxThreads = 5;
     
-    private static Set<String> ignoreFields;
+    private static Set<String> ignoreFields = new HashSet<>();
 
     private static final String newline = System.getProperty("line.separator");
 
     private static final int availableCPUs = Runtime.getRuntime().availableProcessors();
 
     private static boolean verbose = false;
+    
+    private static boolean autoCorrect = false;
 
     public static void main(String[] args) {
 
@@ -63,34 +66,41 @@ public class NeoFinderToES {
 
         final Options options = new Options();
         options.addOption("h", "help", false, "print this message");
-        options.addOption("c", "catalog", false, "read cdfinder/neofinder catalog files");
-        options.addOption("n", "newindex", false, "create a new elasticsearch index (if an old one with the same name exists it "
-                + "will be deleted");
+        options.addOption("A", "autocorrect", false, "if only one date column could be parsed assign this value to "
+                + "both date fields" + newline
+                + "(only works with option -c)");
+        options.addOption("c", "catalog", false, "parse and import cdfinder/neofinder catalog files");
+        options.addOption("n", "newindex", false, "create a new elasticsearch index " + newline 
+                + "(if an old one with the same name exists it will be deleted)");
         options.addOption("v", "verbose", false, "show JSON objects that are added to the index");
         options.addOption(Option.builder("a")
                 .longOpt("address")
-                .desc("the address of the elasticsearch index (omitting this the local loopback address will be used)")
+                .desc("the address of the elasticsearch index " + newline 
+                        + "(omitting this the local loopback address will be used)")
                 .hasArg()
                 .argName("ADDRESS")
                 .build());
         options.addOption(Option.builder("i")
                 .longOpt("indexname")
-                .desc("the name of the elasticsearch index (omitting this the name '"
+                .desc("the name of the elasticsearch index " + newline 
+                        + "(omitting this the name '"
                         + esIndexName + "' will be used)")
                 .hasArg()
                 .argName("NAME")
                 .build());
         options.addOption(Option.builder("I")
                 .longOpt("ignore")
-                .desc("The fields to ignore potentially invalid data for:" + newline)
+                .desc("the field or fields to ignore potentially invalid data for" + newline 
+                        + "if multiple fields are specified they must be comma separated" + newline
+                        + "(only works with option -c)")
                 .hasArgs()
                 .valueSeparator(',')
                 .argName("FIELDLIST")
                 .build());
         options.addOption(Option.builder("e")
                 .longOpt("esclustername")
-                .desc("the name of the elasticsearch cluster (omitting this the default name 'elasticsearch' will be "
-                        + "used)")
+                .desc("the name of the elasticsearch cluster " + newline 
+                        + "(omitting this the default name 'elasticsearch' will be used)")
                 .hasArg()
                 .argName("NAME")
                 .build());
@@ -99,14 +109,16 @@ public class NeoFinderToES {
                 .desc("the mime type fetch strategy to use:" + newline
                         + "0: no mime type information is fetched (default)" + newline
                         + "1: mime type is 'guessed' based on file extension" + newline
-                        + "2: mime type is detected by inspecting the file (most accurate but slow)")
+                        + "2: mime type is detected by inspecting the file (most accurate but slow)" + newline
+                        + "(only works without option -c)")
                 .hasArg()
                 .argName("STRATEGY")
                 .build());
         options.addOption(Option.builder("t")
                 .longOpt("threads")
-                .desc("the maximum number of threads used for reading (the default value is the number of available "
-                        + "CPUs/Cores)")
+                .desc("the maximum number of threads used for file system reading " + newline 
+                        + "(the default value is the number of available CPU cores)" + newline
+                        + "(only works without option -c)")
                 .hasArg()
                 .argName("MAX_THREADS")
                 .build());
@@ -119,6 +131,7 @@ public class NeoFinderToES {
             argList = cmd.getArgList();
             if (!argList.isEmpty()) {
                 scanMode = !cmd.hasOption("c");
+                autoCorrect = !scanMode && cmd.hasOption("A");
                 verbose = cmd.hasOption("v");
                 if (cmd.hasOption("a")) {
                     address = cmd.getOptionValue("a");
@@ -130,14 +143,14 @@ public class NeoFinderToES {
                 if (cmd.hasOption("i")) {
                     esIndexName = cmd.getOptionValue("i");
                 }
-                if (cmd.hasOption("t")) {
+                if (scanMode && cmd.hasOption("t")) {
                     maxThreads = Integer.valueOf(cmd.getOptionValue("t"));
                     maxThreads = maxThreads <= availableCPUs * 5 ? maxThreads : availableCPUs * 5;
                 }
-                if (cmd.hasOption("m")) {
+                if (scanMode && cmd.hasOption("m")) {
                     mimeInfo = Integer.valueOf(cmd.getOptionValue("m"));
                 }
-                if (cmd.hasOption("I")) {
+                if (!scanMode && cmd.hasOption("I")) {
                     ignoreFields = Arrays.stream(cmd.getOptionValues("I")).collect(Collectors.toSet());
                     Map<String, List<String>> tokenMap = Mapping.getTokenMap();
                     for (String field: ignoreFields) {
@@ -196,7 +209,7 @@ public class NeoFinderToES {
                 File scanDirectory = new File(filename).getCanonicalFile();
                 
                 if (!scanDirectory.exists()) {
-                    System.err.println("\rSource '" + filename + "' does not exist.");
+                    System.err.println("Source '" + filename + "' does not exist.");
                     continue;
                 }
 
@@ -210,16 +223,16 @@ public class NeoFinderToES {
                     } else {
                         String[] files = scanDirectory.list();
                         for (final String file : files) {
-                            new CsvReader(esService).read(scanDirectory + "/" + file, ignoreFields, verbose);
+                            new CsvReader(esService).read(scanDirectory + "/" + file, autoCorrect, ignoreFields, verbose);
                         }
                     }
                 } else {
                     if (!scanMode) {
-                        new CsvReader(esService).read(scanDirectory.getAbsolutePath(), ignoreFields, verbose);
+                        new CsvReader(esService).read(scanDirectory.getAbsolutePath(), autoCorrect, ignoreFields, verbose);
                     }
                 }
             } catch (IOException ex) {
-                System.err.println("\rCould not read '" + filename + "'.");
+                System.err.println("Could not read '" + filename + "'.");
             }
         }
         

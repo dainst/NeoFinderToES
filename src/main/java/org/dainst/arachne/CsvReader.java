@@ -39,7 +39,9 @@ public class CsvReader {
         this.esService = esService;
     }
     
-    public boolean read(final String path,  final Set<String> ignoreFields, final boolean verbose) throws IOException {
+    public boolean read(final String path,  final boolean autoCorrect, final Set<String> ignoreFields
+            , final boolean verbose) throws IOException {
+        
         if (!(path.endsWith(".csv") || path.endsWith(".txt"))) {
             System.out.println("\rSkipping " + path + " (no csv or txt)");
             return false;
@@ -110,12 +112,12 @@ public class CsvReader {
                     .findFirst()
                     .get();
             
-            fileInfoList.add(getLineAsFileInfo(firstDataLine, dataLineNumber.intValue(), ignoreFields));
+            fileInfoList.add(getLineAsFileInfo(firstDataLine, dataLineNumber.intValue(), autoCorrect, ignoreFields));
             
             // read remaining data
             fileInfoList.addAll(reader.lines()
                     .peek(line -> dataLineNumber.incrementAndGet())
-                    .map(line -> getLineAsFileInfo(line.split("\t", -1), dataLineNumber.intValue(), ignoreFields))
+                    .map(line -> getLineAsFileInfo(line.split("\t", -1), dataLineNumber.intValue(), autoCorrect, ignoreFields))
                     .collect(Collectors.toList()));
         } catch (IOException e) {
             throw e;
@@ -136,11 +138,11 @@ public class CsvReader {
     }
     
     private ArchivedFileInfo getLineAsFileInfo(final String[] dataLine, final int lineNumber
-            , final Set<String> ignoreFields) {
+            , final boolean autoCorrect, final Set<String> ignoreFields) {
         
         String detailMessage = "\rMissing columns";
         if (dataLine.length >= minLineLength) {
-            final ArchivedFileInfo fileInfo = new ArchivedFileInfo(esService.getIndexName());
+            final ArchivedFileInfo fileInfo = new ArchivedFileInfo(esService.getIndexName(), autoCorrect);
             String setterName = "";
             String fieldName = "";
             try {

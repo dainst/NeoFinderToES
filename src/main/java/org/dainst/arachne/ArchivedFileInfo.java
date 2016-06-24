@@ -25,13 +25,16 @@ public class ArchivedFileInfo {
     private String size;
     private long sizeInBytes;
 
-    private String created;
-    private String lastChanged;
+    private String created = "";
+    private String lastChanged = "";
 
     private String resourceType;
 
-    public ArchivedFileInfo(final String index) {
+    private final boolean autoCorrect;
+
+    public ArchivedFileInfo(final String index, final boolean autoCorrect) {
         this.index = index;
+        this.autoCorrect = autoCorrect;
     }
 
     public String getCatalog() {
@@ -93,8 +96,27 @@ public class ArchivedFileInfo {
         return created;
     }
 
-    public ArchivedFileInfo setCreated(String created) throws DateTimeParseException {
+    public ArchivedFileInfo setCreated(final String created) throws DateTimeParseException {
         this.created = convertDateFormat(created);
+        // this 'if'-statement is just for documentation purpose
+        if (autoCorrect) {
+            // since we don't know the order in which 'created' and 'lastChanged' are set we just try both variants
+            // if 'created' could not be parsed try to set it to 'lastChanged' if this contains a valid value
+            if ("~".equals(this.created)) {
+                if (lastChanged.length() > 1) {
+                    this.created = lastChanged;
+                }
+            }
+            // if 'lastChanged' could not be parsed and 'created' could
+            if ("~".equals(lastChanged)) {
+                lastChanged = this.created;
+            }
+            // if both could not be parsed
+            if ("~".equals(this.created) && "~".equals(lastChanged)) {
+                throw new DateTimeParseException("Autocorrection failed. As both date columns could not be parsed."
+                        , created, 0);
+            }
+        }
         return this;
     }
 
@@ -102,8 +124,27 @@ public class ArchivedFileInfo {
         return lastChanged;
     }
 
-    public ArchivedFileInfo setLastChanged(String lastChanged) throws DateTimeParseException {
+    public ArchivedFileInfo setLastChanged(final String lastChanged) throws DateTimeParseException {
         this.lastChanged = convertDateFormat(lastChanged);
+        // this 'if' is just for documentation purpose
+        if (autoCorrect) {
+            // since we don't know the order in which 'created' and 'lastChanged' are set we just try both variants
+            // if 'lastChange' could not be parsed try to set it to 'created' if this contains a valid value
+            if ("~".equals(this.lastChanged)) {
+                if (created.length() > 1) {
+                    this.lastChanged = created;
+                }
+            }
+            // if 'created' could not be parsed and 'lastChanged' could
+            if ("~".equals(created)) {
+                created = this.lastChanged;
+            }
+            // if both could not be parsed
+            if ("~".equals(this.lastChanged) && "~".equals(created)) {
+                throw new DateTimeParseException("Autocorrection failed. As both date columns could not be parsed."
+                        , lastChanged, 0);
+            }
+        }
         return this;
     }
 
@@ -140,11 +181,18 @@ public class ArchivedFileInfo {
                 + "[dd.MM.yyyy[ HH:mm:ss]]"
                 + "[yyyy-MM-dd[ HH:mm:ss]]"
         );
-        
+
         try {
             dateTime = LocalDateTime.parse(date, formatter);
         } catch (DateTimeParseException e) {
-            dateTime = LocalDate.parse(date, formatter).atStartOfDay();
+            try {
+                dateTime = LocalDate.parse(date, formatter).atStartOfDay();
+            } catch (DateTimeParseException ex) {
+                if (autoCorrect) {
+                    return "~";
+                }
+                throw ex;
+            }
         }
         DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
         return dateTime.format(outputFormatter);

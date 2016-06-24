@@ -125,7 +125,7 @@ public class DirectoryCrawler extends RecursiveAction {
         Path fileName = path.getFileName();
         fileName = fileName != null ? fileName : path;
         
-        return new ArchivedFileInfo(null)
+        return new ArchivedFileInfo(null, false)
                 .setName(fileName.toString())
                 .setPath(path.toString())
                 .setSize(formatSize(attributes.size()))
