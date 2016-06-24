@@ -62,3 +62,12 @@ Options:
 6 - elasticsearch host not found
 7 - could not connect to elasticsearch cluster
 ```
+
+## Build
+
+Prerequisites:
+* Maven
+
+```
+mvn clean package
+```
