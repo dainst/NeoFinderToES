@@ -66,8 +66,9 @@ public class NeoFinderToES {
 
         final Options options = new Options();
         options.addOption("h", "help", false, "print this message");
-        options.addOption("A", "autocorrect", false, "if only one date column could be parsed assign this value to "
-                + "both date fields" + newline
+        options.addOption("A", "autocorrect", false, "enables auto correction:" + newline
+                + "- try to fix lines with less columns than the header specifies" + newline
+                + "- if only one date column could be parsed assign this value to both date fields" + newline
                 + "(only works with option -c)");
         options.addOption("c", "catalog", false, "parse and import cdfinder/neofinder catalog files");
         options.addOption("n", "newindex", false, "create a new elasticsearch index " + newline 

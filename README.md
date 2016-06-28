@@ -10,7 +10,10 @@
 usage: neofindertoes [options] FILE_OR_DIRECTORY1 [FILE_OR_DIRECTORY2
                      [FILE_OR_DIRECTORY3] ...]
 Options:
- -A,--autocorrect             if only one date column could be parsed
+ -A,--autocorrect             enables auto correction:
+                              - try to fix lines with less columns than
+                              the header specifies
+                              - if only one date column could be parsed
                               assign this value to both date fields
                               (only works with option -c)
  -a,--address <ADDRESS>       the address of the elasticsearch index

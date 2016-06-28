@@ -10,6 +10,7 @@ import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -70,7 +71,7 @@ public class CsvReader {
         } catch (IOException e) {
             throw e;
         }
-        
+        int headerSize = columns.size();
         // create index map
         indexMap = new HashMap<>();
         int maxIndex = -1;
@@ -98,6 +99,7 @@ public class CsvReader {
             throw new IOException("Invalid header.");
         }       
         
+        System.out.println("\rParsing...");
         // read data
         final int minLength = maxIndex + 1;
         minLineLength = minLength;
@@ -113,21 +115,71 @@ public class CsvReader {
                     .skip(1)
                     .map(line -> line.split("\t", -1))
                     .peek(line -> dataLineNumber.incrementAndGet())
-                    .filter(line -> line.length >= minLength)
+                    .filter(line -> line.length == headerSize)
                     .findFirst()
                     .get();
-            
+
             fileInfoList.add(getLineAsFileInfo(firstDataLine, dataLineNumber.intValue(), autoCorrect, ignoreFields));
-            
+
             // read remaining data
-            fileInfoList.addAll(reader.lines()
-                    .peek(line -> dataLineNumber.incrementAndGet())
-                    .map(line -> getLineAsFileInfo(line.split("\t", -1), dataLineNumber.intValue(), autoCorrect, ignoreFields))
-                    .collect(Collectors.toList()));
+            if (!autoCorrect) {
+                fileInfoList.addAll(reader.lines()
+                        .peek(line -> dataLineNumber.incrementAndGet())
+                        .map(line -> getLineAsFileInfo(line.split("\t", -1), dataLineNumber.intValue(), autoCorrect, ignoreFields))
+                        .collect(Collectors.toList()));
+            } else {
+                List<String> rawLineData = new ArrayList<>();
+                rawLineData = reader.lines().collect(Collectors.toList());
+
+                List<String> correctedData = new ArrayList<>();
+                String correctedLine = "";
+                int lineNumber = dataLineNumber.intValue();
+                for (String line : rawLineData) {
+                    lineNumber++;
+                    int count = line.length() - line.replace("\t", "").length();
+                    if (count == headerSize - 1) {
+                        correctedData.add(line);
+                    } else {
+                        if (verbose) {
+                            System.out.println("\rIncomplete line.");
+                            System.out.println("\r" + lineNumber + ": " + line);
+                        }
+                        if ("".equals(correctedLine)) {
+                            correctedLine = line;
+                        } else {
+                            correctedLine += line;
+                            if (verbose) {
+                                System.out.println("\rCorrected :");
+                                int l = (int) Math.log10(lineNumber) + 1;
+                                System.out.println("\r" + new String(new char[l]).replace('\0', '*') + ": "
+                                        + correctedLine);
+                            }
+                            count = correctedLine.length() - correctedLine.replace("\t", "").length();
+                            if (count == headerSize - 1) {
+                                correctedData.add(correctedLine);
+                                correctedLine = "";
+                                if (verbose) {
+                                    System.out.println("\rAuto correction successfull.");
+                                }
+                            } else {
+                                if (count > headerSize - 1) {
+                                    System.err.println("Auto correction failed at line: " + lineNumber);
+                                    System.exit(0);
+                                }
+                            }
+                        }
+                    }
+                }
+                fileInfoList.addAll(correctedData.stream()
+                        .peek(line -> dataLineNumber.incrementAndGet())
+                        .map(line -> getLineAsFileInfo(line.split("\t", -1), dataLineNumber.intValue(), autoCorrect, ignoreFields))
+                        .collect(Collectors.toList()));
+            }
+            System.out.println("\rRecords parsed: " + fileInfoList.size() + "\n");
         } catch (IOException e) {
             throw e;
         }
-        
+
         if (potentiallyInvalidDataLines > 0) {
             System.out.println("\rFile '" + path + "' has " + potentiallyInvalidDataLines + " potentially invalid lines.");
         }
@@ -138,6 +190,7 @@ public class CsvReader {
             return false;
         }
         
+        System.out.println("\rImporting into elasticsearch index...");
         for (ArchivedFileInfo fileInfo: fileInfoList) {
             esImport(fileInfo, verbose);
         }
@@ -164,8 +217,29 @@ public class CsvReader {
                     Method setterMethod = ArchivedFileInfo.class.getMethod(setterName, fieldType);
                     
                     final String value = dataLine[index];
-                    if (!value.isEmpty() || ignoreFields.contains(fieldName)) {
-                        setterMethod.invoke(fileInfo, value);
+                    boolean ignore = ignoreFields.contains(fieldName);
+                    if (!value.isEmpty() || ignore) {
+                        try {
+                            setterMethod.invoke(fileInfo, value);
+                        } catch (InvocationTargetException e) {
+                            // a little hack to get -A and -I working together for the date fields
+                            if (e.getTargetException() instanceof DateTimeParseException 
+                                    && e.getTargetException().getMessage().equals(
+                                            "Autocorrection failed. As both date columns could not be parsed.")) {
+                                for (String fn: Arrays.asList(new String[] {"created", "lastChanged"})) {
+                                    Field f = ArchivedFileInfo.class.getDeclaredField(fn);
+                                    f.setAccessible(true);
+                                    f.set(fileInfo, "");
+                                }
+                                continue;
+                            }
+                            
+                            if (ignore) {
+                                continue;
+                            }
+                            
+                            throw e;
+                        }
                     } else {
                         potentiallyInvalidDataLines++;
                         System.err.println("Potentially invalid data at line " + lineNumber);
