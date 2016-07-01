@@ -45,6 +45,8 @@ public class NeoFinderToES {
     private static ESService esService;
 
     private static boolean scanMode = true;
+    
+    private static boolean strictScanMode = true;
 
     private static int mimeInfo = 1;
 
@@ -69,8 +71,10 @@ public class NeoFinderToES {
         options.addOption("A", "autocorrect", false, "enables auto correction:" + newline
                 + "- try to fix lines with less columns than the header specifies" + newline
                 + "- if only one date column could be parsed assign this value to both date fields" + newline
-                + "(only works with option -c)");
+                + "(for catalog parsing only)");
         options.addOption("c", "catalog", false, "parse and import cdfinder/neofinder catalog files");
+        options.addOption("r", "readerrors", false, "ignore read errors" + newline
+                + "(for file system scanning only)");
         options.addOption("n", "newindex", false, "create a new elasticsearch index " + newline 
                 + "(if an old one with the same name exists it will be deleted)");
         options.addOption("v", "verbose", false, "show JSON objects that are added to the index");
@@ -94,7 +98,7 @@ public class NeoFinderToES {
                 .desc("the field or fields to ignore potentially invalid data for" + newline 
                         + "if multiple fields are specified they must be comma separated" + newline
                         + "(use with care as this may create records that will miss the specified fields)" + newline
-                        + "(only works with option -c)")
+                        + "(for catalog parsing only)")
                 .hasArgs()
                 .valueSeparator(',')
                 .argName("FIELDLIST")
@@ -107,12 +111,12 @@ public class NeoFinderToES {
                 .argName("NAME")
                 .build());
         options.addOption(Option.builder("m")
-                .longOpt("mimeType")
+                .longOpt("mimetype")
                 .desc("the mime type fetch strategy to use:" + newline
                         + "0: no mime type information is fetched (default)" + newline
                         + "1: mime type is 'guessed' based on file extension" + newline
                         + "2: mime type is detected by inspecting the file (most accurate but slow)" + newline
-                        + "(only works without option -c)")
+                        + "(for file system scanning only)")
                 .hasArg()
                 .argName("STRATEGY")
                 .build());
@@ -120,7 +124,7 @@ public class NeoFinderToES {
                 .longOpt("threads")
                 .desc("the maximum number of threads used for file system reading " + newline 
                         + "(the default value is the number of available CPU cores)" + newline
-                        + "(only works without option -c)")
+                        + "(for file system scanning only)")
                 .hasArg()
                 .argName("MAX_THREADS")
                 .build());
@@ -133,6 +137,7 @@ public class NeoFinderToES {
             argList = cmd.getArgList();
             if (!argList.isEmpty()) {
                 scanMode = !cmd.hasOption("c");
+                strictScanMode = scanMode && !cmd.hasOption("r");
                 autoCorrect = !scanMode && cmd.hasOption("A");
                 verbose = cmd.hasOption("v");
                 if (cmd.hasOption("a")) {
@@ -221,7 +226,7 @@ public class NeoFinderToES {
 
                 if (scanDirectory.isDirectory()) {
                     if (scanMode) {
-                        new FileSystemScanner(esService).scan(scanDirectory, maxThreads, mimeInfo, verbose);
+                        new FileSystemScanner(esService).scan(scanDirectory, maxThreads, mimeInfo, strictScanMode, verbose);
                     } else {
                         String[] files = scanDirectory.list();
                         for (final String file : files) {

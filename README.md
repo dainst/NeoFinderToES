@@ -15,7 +15,7 @@ Options:
                               the header specifies
                               - if only one date column could be parsed
                               assign this value to both date fields
-                              (only works with option -c)
+                              (for catalog parsing only)
  -a,--address <ADDRESS>       the address of the elasticsearch index
                               (omitting this the local loopback address
                               will be used)
@@ -34,23 +34,25 @@ Options:
                               be comma separated
                               (use with care as this may create records
                               that will miss the specified fields)
-                              (only works with option -c)
- -m,--mimeType <STRATEGY>     the mime type fetch strategy to use:
+                              (for catalog parsing only)
+ -m,--mimetype <STRATEGY>     the mime type fetch strategy to use:
                               0: no mime type information is fetched
                               (default)
                               1: mime type is 'guessed' based on file
                               extension
                               2: mime type is detected by inspecting the
                               file (most accurate but slow)
-                              (only works without option -c)
+                              (for file system scanning only)
  -n,--newindex                create a new elasticsearch index
                               (if an old one with the same name exists it
                               will be deleted)
+ -r,--readerrors              ignore read errors
+                              (for file system scanning only)
  -t,--threads <MAX_THREADS>   the maximum number of threads used for file
                               system reading
                               (the default value is the number of
                               available CPU cores)
-                              (only works without option -c)
+                              (for file system scanning only)
  -v,--verbose                 show JSON objects that are added to the
                               index
 ```
