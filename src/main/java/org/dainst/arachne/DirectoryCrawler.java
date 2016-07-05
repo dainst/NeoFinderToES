@@ -2,7 +2,6 @@ package org.dainst.arachne;
 
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
-import java.nio.file.FileSystemException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -65,7 +64,6 @@ public class DirectoryCrawler extends RecursiveTask<Boolean> {
                             queue.put(getFileInfo(directory, attrs));
                         } catch (InterruptedException ex) {
                             Thread.currentThread().interrupt();
-                            System.err.println("Adding directory info for '" + directory + "' to queue failed. Cause: " + ex);
                             errors = true;
                             return FileVisitResult.TERMINATE;
                         }
@@ -79,7 +77,6 @@ public class DirectoryCrawler extends RecursiveTask<Boolean> {
                         queue.put(getFileInfo(file, attrs));
                     } catch (InterruptedException ex) {
                         Thread.currentThread().interrupt();
-                        System.err.println("Adding file info for '" + file + "' to queue failed. Cause: " + ex);
                         errors = true;
                         return FileVisitResult.TERMINATE;
                     }
@@ -113,11 +110,8 @@ public class DirectoryCrawler extends RecursiveTask<Boolean> {
                 }
             });
         } catch (IOException e) {
-            if (e instanceof FileSystemException) {
-                System.err.println("Ignoring " + e.getMessage());
-            } else {
-                e.printStackTrace();
-            }
+            System.err.println("IO error: " + e.getMessage());
+            errors = true;
         }
 
         crawlers.stream().forEach(crawler -> {

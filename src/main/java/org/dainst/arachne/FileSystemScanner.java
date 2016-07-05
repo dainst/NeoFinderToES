@@ -50,86 +50,77 @@ public class FileSystemScanner {
         this.volume = scanDirectory.toString();
         this.verbose = verbose;
         this.strict = strict;
-        Indexer indexer = null;
+        FileInfoCollector fileInfoCollector = null;
+
+        System.out.format("\rScanning %s...\n", scanDirectory);
+
+        BlockingQueue<ArchivedFileInfo> queue = new LinkedBlockingQueue<>();
+
+        fileInfoCollector = new FileInfoCollector(scanDirectory, esService, queue, verbose);
+        ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
+        Future<List<ArchivedFileInfo>> indexedFiles = (Future<List<ArchivedFileInfo>>) singleThreadExecutor
+                .submit(fileInfoCollector);
+
+        DirectoryCrawler crawler;
+
+        crawler = new DirectoryCrawler(scanDirectory.toPath().toRealPath(LinkOption.NOFOLLOW_LINKS), mimeInfo, strict, queue);
+        ForkJoinPool pool = new ForkJoinPool(maxThreads);
+
+        long startTime = new Date().getTime();
+
+        // clean up if the execution is finished or terminated (for example by ctrl+c)
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            @Override
+            public void run() {
+                singleThreadExecutor.shutdownNow();
+                pool.shutdownNow();
+                esService.close();
+            }
+        });
+
+        boolean errors = false;
         try {
-            System.out.format("\rScanning %s...\n", scanDirectory);
-
-            BlockingQueue<ArchivedFileInfo> queue = new LinkedBlockingQueue<>();
-
-            indexer = new Indexer(scanDirectory, esService, queue, verbose);
-            ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
-            Future<List<ArchivedFileInfo>> indexedFiles = (Future<List<ArchivedFileInfo>>) singleThreadExecutor
-                    .submit(indexer);
-
-            DirectoryCrawler crawler;
-
-            crawler = new DirectoryCrawler(scanDirectory.toPath().toRealPath(LinkOption.NOFOLLOW_LINKS), mimeInfo
-                    , strict, queue);
-            ForkJoinPool pool = new ForkJoinPool(maxThreads);
-
-            long startTime = new Date().getTime();
-
-            // clean up if the execution is finished or terminated (for example by ctrl+c)
-            Runtime.getRuntime().addShutdownHook(new Thread() {
-                @Override
-                public void run() {
-                    singleThreadExecutor.shutdownNow();
-                    pool.shutdownNow();
-                    esService.close();
-                }
-            });
-
-            boolean errors = false;
-            try {
-                errors = pool.invoke(crawler);
-            } catch (CancellationException e) {
-                System.err.println("Thread pool invokation cancelled. Cause: " + e);
-            }
-
-            while (!queue.isEmpty()) {
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException ex) {
-                    System.err.println("Failure while waiting for queue to get depleted. Cause: " + ex);
-                }
-            }
-
-            indexer.terminate();
-
-            List<ArchivedFileInfo> fileInfos = null;
-            try {
-                fileInfos = indexedFiles.get();
-            } catch (InterruptedException | ExecutionException ex) {
-                System.err.println("Failure while retrieving file/directoy information. Cause: " + ex);
-            }
-
-            if (fileInfos != null && !fileInfos.isEmpty()) {
-                System.out.println("\rFiles read: " + fileInfos.size() + "\n");
-
-                if (!strict || (strict && !errors)) {
-                    System.out.println("Importing into elasticsearch index...");
-                    for (ArchivedFileInfo fileInfo : fileInfos) {
-                        index(fileInfo);
-                    }
-                    System.out.println("\rIndexed files: " + fileInfos.size());
-                } else {
-                    System.out.println("\rNo data imported.");
-                }
-                if (verbose) {
-                    long diff = new Date().getTime() - startTime;
-                    String timeTaken = String.format("%02d min, %02d sec", TimeUnit.MILLISECONDS.toMinutes(diff)
-                            , TimeUnit.MILLISECONDS.toSeconds(diff) 
-                            - TimeUnit.MINUTES.toSeconds(TimeUnit.MILLISECONDS.toMinutes(diff)));
-                    System.out.println("\rElapsed time: " + timeTaken);
-                }
-            }
-            singleThreadExecutor.shutdownNow();
-        } catch (IOException ex) {
-            if (indexer != null) {
-                indexer.terminate();
-            }
-            throw ex;
+            errors = pool.invoke(crawler);
+        } catch (CancellationException e) {
+            System.err.println("Task cancelled.");
+            errors = true;
         }
+
+        while (!queue.isEmpty()) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException ex) {
+                errors = true;
+            }
+        }
+        
+        fileInfoCollector.interrupt();
+        
+        List<ArchivedFileInfo> fileInfos = null;
+        try {
+            fileInfos = indexedFiles.get();
+        } catch (InterruptedException | ExecutionException ignore) {}
+
+        if (fileInfos != null && !fileInfos.isEmpty()) {
+            System.out.println("\rFiles read: " + fileInfos.size() + "\n");
+
+            if (!strict || (strict && !errors)) {
+                System.out.println("Importing into elasticsearch index...");
+                for (ArchivedFileInfo fileInfo : fileInfos) {
+                    index(fileInfo);
+                }
+                System.out.println("\rIndexed files: " + fileInfos.size());
+            } else {
+                System.out.println("\rNo data imported.");
+            }
+            if (verbose) {
+                long diff = new Date().getTime() - startTime;
+                String timeTaken = String.format("%02d min, %02d sec", TimeUnit.MILLISECONDS.toMinutes(diff), TimeUnit.MILLISECONDS.toSeconds(diff)
+                        - TimeUnit.MINUTES.toSeconds(TimeUnit.MILLISECONDS.toMinutes(diff)));
+                System.out.println("\rElapsed time: " + timeTaken);
+            }
+        }
+        singleThreadExecutor.shutdown();
     }
 
     private void index(final ArchivedFileInfo fileInfo) {

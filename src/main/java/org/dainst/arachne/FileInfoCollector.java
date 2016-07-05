@@ -12,19 +12,19 @@ import java.util.concurrent.Callable;
  *
  * @author Reimar Grabowski
  */
-public class Indexer implements Callable<List<ArchivedFileInfo>> {
+public class FileInfoCollector implements Callable<List<ArchivedFileInfo>> {
 
     private final BlockingQueue<ArchivedFileInfo> queue;
-    private volatile boolean isRunning = true;
-    private Thread myself;
-        
+    
     private final ESService esService;
         
     private final boolean verbose;
 
-    private List<ArchivedFileInfo> indexedFiles = new ArrayList<>();
+    private final List<ArchivedFileInfo> indexedFiles = new ArrayList<>();
     
-    public Indexer(final File volume, final ESService esService, final BlockingQueue queue,
+    private Thread myself;
+    
+    public FileInfoCollector(final File volume, final ESService esService, final BlockingQueue queue,
             final boolean verbose) {
     
         this.queue = queue;
@@ -35,18 +35,17 @@ public class Indexer implements Callable<List<ArchivedFileInfo>> {
     @Override
     public List<ArchivedFileInfo> call() {
         myself = Thread.currentThread();
-        while (isRunning) {
+        while (!myself.isInterrupted()) {
             try {
                 indexedFiles.add(queue.take());
             } catch (Exception e) {
-                Thread.currentThread().interrupt();
+                myself.interrupt();
             }
         }
         return indexedFiles;
     }
-
-    public void terminate() {
-        isRunning = false;
+    
+    public void interrupt() {
         myself.interrupt();
     }
 }
