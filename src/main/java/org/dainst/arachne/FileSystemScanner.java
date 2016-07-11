@@ -18,6 +18,8 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  *
@@ -58,12 +60,13 @@ public class FileSystemScanner {
 
         fileInfoCollector = new FileInfoCollector(scanDirectory, esService, queue, verbose);
         ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
-        Future<List<ArchivedFileInfo>> indexedFiles = (Future<List<ArchivedFileInfo>>) singleThreadExecutor
+        Future<Integer> indexedFiles = (Future<Integer>) singleThreadExecutor
                 .submit(fileInfoCollector);
 
         DirectoryCrawler crawler;
 
-        crawler = new DirectoryCrawler(scanDirectory.toPath().toRealPath(LinkOption.NOFOLLOW_LINKS), mimeInfo, strict, queue);
+        crawler = new DirectoryCrawler(scanDirectory.toPath().toRealPath(LinkOption.NOFOLLOW_LINKS), mimeInfo, strict
+                , verbose, queue);
         ForkJoinPool pool = new ForkJoinPool(maxThreads);
 
         long startTime = new Date().getTime();
@@ -78,41 +81,23 @@ public class FileSystemScanner {
             }
         });
 
-        boolean errors = false;
+        int filesRead = 0;
         try {
-            errors = pool.invoke(crawler);
+            filesRead = pool.invoke(crawler);
         } catch (CancellationException e) {
             System.err.println("Task cancelled.");
-            errors = true;
         }
-
-        while (!queue.isEmpty()) {
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException ex) {
-                errors = true;
-            }
-        }
+                       
+        fileInfoCollector.interrupt(filesRead);
         
-        fileInfoCollector.interrupt();
-        
-        List<ArchivedFileInfo> fileInfos = null;
+        int fileInfos = 0;
         try {
             fileInfos = indexedFiles.get();
         } catch (InterruptedException | ExecutionException ignore) {}
-
-        if (fileInfos != null && !fileInfos.isEmpty()) {
-            System.out.println("\rFiles read: " + fileInfos.size() + "\n");
-
-            if (!strict || (strict && !errors)) {
-                System.out.println("Importing into elasticsearch index...");
-                for (ArchivedFileInfo fileInfo : fileInfos) {
-                    index(fileInfo);
-                }
-                System.out.println("\rIndexed files: " + fileInfos.size());
-            } else {
-                System.out.println("\rNo data imported.");
-            }
+        
+        if (fileInfos > 0) {
+            System.out.println("\rDone.\n");
+            
             if (verbose) {
                 long diff = new Date().getTime() - startTime;
                 String timeTaken = String.format("%02d min, %02d sec", TimeUnit.MILLISECONDS.toMinutes(diff), TimeUnit.MILLISECONDS.toSeconds(diff)
@@ -121,27 +106,5 @@ public class FileSystemScanner {
             }
         }
         singleThreadExecutor.shutdown();
-    }
-
-    private void index(final ArchivedFileInfo fileInfo) {
-        fileInfo.setVolume(volume);
-        fileInfo.setCatalog(hostname);
-        fileInfo.setIndex(esService.getIndexName());
-
-        final ObjectMapper mapper = new ObjectMapper();
-
-        try {
-            byte[] jsonAsBytes = mapper.writeValueAsBytes(fileInfo);
-            if (verbose) {
-                System.out.println(mapper.writeValueAsString(fileInfo));
-            }
-
-            String id = esService.addToIndex(jsonAsBytes, fileInfo.getPath());
-            if (id == null || id.isEmpty()) {
-                System.err.println("Failed to add entry: \n" + mapper.writeValueAsString(fileInfo));
-            }
-        } catch (JsonProcessingException ex) {
-            System.err.println("Could not map file info to JSON. Cause: " + ex);
-        }
     }
 }

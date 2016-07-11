@@ -12,7 +12,7 @@ import java.util.concurrent.Callable;
  *
  * @author Reimar Grabowski
  */
-public class FileInfoCollector implements Callable<List<ArchivedFileInfo>> {
+public class FileInfoCollector implements Callable<Integer> {
 
     private final BlockingQueue<ArchivedFileInfo> queue;
     
@@ -20,7 +20,7 @@ public class FileInfoCollector implements Callable<List<ArchivedFileInfo>> {
         
     private final boolean verbose;
 
-    private final List<ArchivedFileInfo> indexedFiles = new ArrayList<>();
+    private final BulkIndexer bulkIndexer;
     
     private Thread myself;
     
@@ -30,22 +30,32 @@ public class FileInfoCollector implements Callable<List<ArchivedFileInfo>> {
         this.queue = queue;
         this.esService = esService;
         this.verbose = verbose;
+        bulkIndexer = new BulkIndexer(esService, volume.toString(), verbose);
     }
 
     @Override
-    public List<ArchivedFileInfo> call() {
+    public Integer call() {
         myself = Thread.currentThread();
+        int filesSubmitted = 0;
         while (!myself.isInterrupted()) {
             try {
-                indexedFiles.add(queue.take());
+                List<ArchivedFileInfo> fileInfos = new ArrayList<>();
+                synchronized (queue) {
+                    queue.drainTo(fileInfos);
+                }
+                filesSubmitted += fileInfos.size();
+                
+                fileInfos.stream().forEach(fileInfo -> bulkIndexer.add(fileInfo));
             } catch (Exception e) {
+                System.err.println("FileInfoCollector interrupted! " + e);
                 myself.interrupt();
             }
         }
-        return indexedFiles;
+        return filesSubmitted;
     }
     
-    public void interrupt() {
+    public void interrupt(final int filesRead) {
+        bulkIndexer.close(filesRead);
         myself.interrupt();
     }
 }

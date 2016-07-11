@@ -25,7 +25,7 @@ import org.apache.tika.Tika;
  *
  * @author Reimar Grabowski
  */
-public class DirectoryCrawler extends RecursiveTask<Boolean> {
+public class DirectoryCrawler extends RecursiveTask<Integer> {
 
     private final Path root;
     private final BlockingQueue<ArchivedFileInfo> queue;
@@ -37,17 +37,24 @@ public class DirectoryCrawler extends RecursiveTask<Boolean> {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm:ss");
 
     private boolean errors = false;
+    
+    private final boolean verbose;
+    
+    private int scannedFiles = 0;
 
-    protected DirectoryCrawler(final Path root, final int mimeInfo, final boolean strict, final BlockingQueue<ArchivedFileInfo> queue) {
+    protected DirectoryCrawler(final Path root, final int mimeInfo, final boolean strict, final boolean verbose
+            , final BlockingQueue<ArchivedFileInfo> queue) {
+        
         this.mimeInfo = mimeInfo;
         this.tika = mimeInfo == 2 ? new Tika() : null;
         this.root = root;
         this.queue = queue;
         this.strict = strict;
+        this.verbose = verbose;
     }
 
     @Override
-    protected Boolean compute() {
+    protected Integer compute() {
         final List<DirectoryCrawler> crawlers = new ArrayList<>();
 
         try {
@@ -55,12 +62,13 @@ public class DirectoryCrawler extends RecursiveTask<Boolean> {
                 @Override
                 public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attrs) throws IOException {
                     if (!directory.equals(DirectoryCrawler.this.root)) {
-                        DirectoryCrawler crawler = new DirectoryCrawler(directory, mimeInfo, strict, queue);
+                        DirectoryCrawler crawler = new DirectoryCrawler(directory, mimeInfo, strict, verbose, queue);
                         crawler.fork();
                         crawlers.add(crawler);
                         return FileVisitResult.SKIP_SUBTREE;
                     } else {
                         try {
+                            scannedFiles++;
                             queue.put(getFileInfo(directory, attrs));
                         } catch (InterruptedException ex) {
                             Thread.currentThread().interrupt();
@@ -74,6 +82,7 @@ public class DirectoryCrawler extends RecursiveTask<Boolean> {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                     try {
+                        scannedFiles++;
                         queue.put(getFileInfo(file, attrs));
                     } catch (InterruptedException ex) {
                         Thread.currentThread().interrupt();
@@ -114,12 +123,11 @@ public class DirectoryCrawler extends RecursiveTask<Boolean> {
             errors = true;
         }
 
-        crawlers.stream().forEach(crawler -> {
-            boolean crawlerhasErrors = crawler.join();
-            errors = errors || crawlerhasErrors;
-        });
-
-        return errors;
+        crawlers.stream().forEach(crawler -> scannedFiles += crawler.join());
+        if (verbose) {
+            System.out.println("\r" + root + ": " + scannedFiles + " files");
+        }
+        return scannedFiles;
     }
 
     private ArchivedFileInfo getFileInfo(final Path path, final BasicFileAttributes attributes) throws IOException {
