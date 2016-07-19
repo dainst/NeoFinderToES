@@ -14,6 +14,14 @@ import java.time.format.DateTimeParseException;
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
 public class ArchivedFileInfo {
 
+    private static final DateTimeFormatter INPUT_FORMATTER = DateTimeFormatter.ofPattern(""
+                + "[dd.MM.yyyy[ HH:mm:ss]]"
+                + "[yyyy-MM-dd[ HH:mm:ss]]"
+                + "[MM/dd/yyyy[ HH:mm:ss]]"
+        );
+    
+    private static final DateTimeFormatter OUTPUT_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
+    
     private String catalog;
     private String volume;
 
@@ -178,17 +186,12 @@ public class ArchivedFileInfo {
 
     private String convertDateFormat(final String date) throws DateTimeParseException {
         LocalDateTime dateTime = null;
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(""
-                + "[dd.MM.yyyy[ HH:mm:ss]]"
-                + "[yyyy-MM-dd[ HH:mm:ss]]"
-                + "[MM/dd/yyyy[ HH:mm:ss]]"
-        );
-
+        
         try {
-            dateTime = LocalDateTime.parse(date, formatter);
+            dateTime = LocalDateTime.parse(date, INPUT_FORMATTER);
         } catch (DateTimeParseException e) {
             try {
-                dateTime = LocalDate.parse(date, formatter).atStartOfDay();
+                dateTime = LocalDate.parse(date, INPUT_FORMATTER).atStartOfDay();
             } catch (DateTimeParseException ex) {
                 if (autoCorrect) {
                     return "~";
@@ -196,7 +199,6 @@ public class ArchivedFileInfo {
                 throw ex;
             }
         }
-        DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss");
-        return dateTime.format(outputFormatter);
+        return dateTime.format(OUTPUT_FORMATTER);
     }
 }

@@ -2,8 +2,10 @@ package org.dainst.arachne;
 
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -14,69 +16,61 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.RecursiveTask;
+import java.util.concurrent.Callable;
 import org.apache.tika.Tika;
 
 /**
- * Class to crawl directories (multithreaded) and add the file information to a queue.
+ * Class to crawl directories and add the file information to a queue.
  *
  * @author Reimar Grabowski
  */
-public class DirectoryCrawler extends RecursiveTask<Integer> {
+public class DirectoryCrawler implements Callable<Integer> {
 
     private final Path root;
     private final BlockingQueue<ArchivedFileInfo> queue;
     private final Tika tika;
     private final int mimeInfo;
-    private final boolean strict;
 
     private static final DecimalFormat DECIMAL_FORMATTER = new DecimalFormat("#.00");
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm:ss");
 
-    private boolean errors = false;
-    
     private final boolean verbose;
-    
+
     private int scannedFiles = 0;
 
-    protected DirectoryCrawler(final Path root, final int mimeInfo, final boolean strict, final boolean verbose
-            , final BlockingQueue<ArchivedFileInfo> queue) {
-        
+    private final List<String> failedFiles = new ArrayList<>();
+
+    protected DirectoryCrawler(final Path root, final int mimeInfo, final boolean verbose, final BlockingQueue<ArchivedFileInfo> queue) {
+
         this.mimeInfo = mimeInfo;
         this.tika = mimeInfo == 2 ? new Tika() : null;
         this.root = root;
         this.queue = queue;
-        this.strict = strict;
         this.verbose = verbose;
     }
 
     @Override
-    protected Integer compute() {
-        final List<DirectoryCrawler> crawlers = new ArrayList<>();
-
+    public Integer call() {
         try {
             Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attrs) throws IOException {
-                    if (!directory.equals(DirectoryCrawler.this.root)) {
-                        DirectoryCrawler crawler = new DirectoryCrawler(directory, mimeInfo, strict, verbose, queue);
-                        crawler.fork();
-                        crawlers.add(crawler);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    } else {
-                        try {
-                            scannedFiles++;
-                            queue.put(getFileInfo(directory, attrs));
-                        } catch (InterruptedException ex) {
-                            Thread.currentThread().interrupt();
-                            errors = true;
-                            return FileVisitResult.TERMINATE;
+                    try {
+                        scannedFiles++;
+                        queue.put(getFileInfo(directory, attrs));
+                        if (verbose) {
+                            System.out.println("\rScanning " + directory + "...");
                         }
-                        return FileVisitResult.CONTINUE;
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        failedFiles.add(directory.toString());
+                        return FileVisitResult.SKIP_SUBTREE;
                     }
+                    return FileVisitResult.CONTINUE;
                 }
 
                 @Override
@@ -86,47 +80,35 @@ public class DirectoryCrawler extends RecursiveTask<Integer> {
                         queue.put(getFileInfo(file, attrs));
                     } catch (InterruptedException ex) {
                         Thread.currentThread().interrupt();
-                        errors = true;
-                        return FileVisitResult.TERMINATE;
+                        failedFiles.add(file.toString());
+                        return FileVisitResult.CONTINUE;
                     }
                     return FileVisitResult.CONTINUE;
                 }
 
                 @Override
-                public FileVisitResult visitFileFailed(Path file, IOException e)
-                        throws IOException {
-
-                    if (strict) {
-                        System.err.printf("Could not read '%s': ", file);
-                        if (e instanceof AccessDeniedException) {
-                            System.err.println("Access denied");
-                        } else {
-                            System.err.println(e.getMessage());
-                        }
-
-                        errors = true;
-                        return FileVisitResult.SKIP_SUBTREE;
+                public FileVisitResult visitFileFailed(Path file, IOException e) throws IOException {
+                    System.err.printf("Could not read '%s': ", file);
+                    if (e instanceof AccessDeniedException) {
+                        System.out.println("Access denied");
                     } else {
-                        System.out.printf("Ignoring '%s': ", file);
-                        if (e instanceof AccessDeniedException) {
-                            System.out.println("Access denied");
-                        } else {
-                            System.out.println(e.getMessage());
-                        }
-
-                        return FileVisitResult.SKIP_SUBTREE;
+                        System.out.println(e.getMessage());
                     }
+                    failedFiles.add(file.toString());
+                    return FileVisitResult.CONTINUE;
                 }
+
             });
         } catch (IOException e) {
             System.err.println("IO error: " + e.getMessage());
-            errors = true;
+            failedFiles.add(root.toString());
         }
 
-        crawlers.stream().forEach(crawler -> scannedFiles += crawler.join());
-        if (verbose) {
-            System.out.println("\r" + root + ": " + scannedFiles + " files");
+        if (!failedFiles.isEmpty()) {
+            System.err.println("Could not import file information for: ");
+            failedFiles.stream().forEach(file -> System.err.println("- " + file));
         }
+
         return scannedFiles;
     }
 
@@ -154,11 +136,11 @@ public class DirectoryCrawler extends RecursiveTask<Integer> {
         Path fileName = path.getFileName();
         fileName = fileName != null ? fileName : path;
 
-        LocalDateTime creationDateTime =
-            LocalDateTime.ofInstant(Instant.ofEpochMilli(attributes.creationTime().toMillis()), ZoneId.systemDefault());
-        LocalDateTime modifiedDateTime =
-            LocalDateTime.ofInstant(Instant.ofEpochMilli(attributes.lastModifiedTime().toMillis()), ZoneId.systemDefault());
-        
+        LocalDateTime creationDateTime
+                = LocalDateTime.ofInstant(Instant.ofEpochMilli(attributes.creationTime().toMillis()), ZoneId.systemDefault());
+        LocalDateTime modifiedDateTime
+                = LocalDateTime.ofInstant(Instant.ofEpochMilli(attributes.lastModifiedTime().toMillis()), ZoneId.systemDefault());
+
         return new ArchivedFileInfo(null, false)
                 .setName(fileName.toString())
                 .setPath(path.toString())

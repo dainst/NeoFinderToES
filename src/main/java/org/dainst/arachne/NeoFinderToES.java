@@ -50,14 +50,14 @@ public class NeoFinderToES {
 
     private static int mimeInfo = 1;
 
-    private static int maxThreads = 5;
-    
     private static Set<String> ignoreFields = new HashSet<>();
 
     private static final String newline = System.getProperty("line.separator");
 
     private static final int availableCPUs = Runtime.getRuntime().availableProcessors();
 
+    private static int maxThreads = availableCPUs - 2;
+    
     private static boolean verbose = false;
     
     private static boolean autoCorrect = false;
@@ -120,14 +120,6 @@ public class NeoFinderToES {
                 .hasArg()
                 .argName("STRATEGY")
                 .build());
-        options.addOption(Option.builder("t")
-                .longOpt("threads")
-                .desc("the maximum number of threads used for file system reading " + newline 
-                        + "(the default value is the number of available CPU cores)" + newline
-                        + "(for file system scanning only)")
-                .hasArg()
-                .argName("MAX_THREADS")
-                .build());
 
         String address = "";
         List<String> argList = null;
@@ -137,7 +129,6 @@ public class NeoFinderToES {
             argList = cmd.getArgList();
             if (!argList.isEmpty()) {
                 scanMode = !cmd.hasOption("c");
-                strictScanMode = scanMode && !cmd.hasOption("r");
                 autoCorrect = !scanMode && cmd.hasOption("A");
                 verbose = cmd.hasOption("v");
                 if (cmd.hasOption("a")) {
@@ -149,10 +140,6 @@ public class NeoFinderToES {
                 }
                 if (cmd.hasOption("i")) {
                     esIndexName = cmd.getOptionValue("i");
-                }
-                if (scanMode && cmd.hasOption("t")) {
-                    maxThreads = Integer.valueOf(cmd.getOptionValue("t"));
-                    maxThreads = maxThreads <= availableCPUs * 5 ? maxThreads : availableCPUs * 5;
                 }
                 if (scanMode && cmd.hasOption("m")) {
                     mimeInfo = Integer.valueOf(cmd.getOptionValue("m"));
@@ -226,7 +213,7 @@ public class NeoFinderToES {
 
                 if (scanDirectory.isDirectory()) {
                     if (scanMode) {
-                        new FileSystemScanner(esService).scan(scanDirectory, maxThreads, mimeInfo, strictScanMode, verbose);
+                        new FileSystemScanner(esService).scan(scanDirectory, maxThreads, mimeInfo, verbose);
                     } else {
                         String[] files = scanDirectory.list();
                         for (final String file : files) {
