@@ -22,4 +22,11 @@ public class Mapping {
         tokenMap.put("volume", Arrays.asList("Name des Volumes", "Volume"));
         return tokenMap;
     }
+    
+    public static Map<String, List<String>> getMinimalTokenMap() {
+        Map<String, List<String>> tokenMap = new HashMap<>();
+        tokenMap.put("path", Arrays.asList("Pfad", "Path"));
+        tokenMap.put("volume", Arrays.asList("Name des Volumes", "Volume"));
+        return tokenMap;
+    }
 }

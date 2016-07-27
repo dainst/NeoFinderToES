@@ -1,7 +1,5 @@
 package org.dainst.arachne;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -14,9 +12,11 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -28,21 +28,29 @@ import java.util.stream.Collectors;
 public class CsvReader {
 
     private final ESService esService;
-    
+
+    private final BulkIndexer bulkIndexer;
+
     private Map<String, Integer> indexMap = new HashMap<>();
     private int minLineLength;
     private boolean parsingErrors = false;
-        
+
     int potentiallyInvalidDataLines = 0;
     int invalidDataLines = 0;
-    
-    public CsvReader(final ESService esService) {
+    int lostLines = 0;
+
+    private final boolean verbose;
+
+    private final Set<Integer> parsedIds = new HashSet<>();
+
+    public CsvReader(final ESService esService, final boolean verbose) {
         this.esService = esService;
+        this.verbose = verbose;
+        bulkIndexer = new BulkIndexer(esService, verbose);
     }
-    
-    public boolean read(final String path,  final boolean autoCorrect, final Set<String> ignoreFields
-            , final boolean verbose) throws IOException {
-        
+
+    public boolean read(final String path, final boolean autoCorrect, final Set<String> ignoreFields, final boolean minimal) throws IOException {
+
         if (!(path.endsWith(".csv") || path.endsWith(".txt"))) {
             System.out.println("\rSkipping " + path + " (no csv or txt)");
             return false;
@@ -54,15 +62,15 @@ public class CsvReader {
             System.err.println("Unable to read file: " + path);
             return false;
         }
-        
+
         parsingErrors = false;
         potentiallyInvalidDataLines = 0;
         invalidDataLines = 0;
-        
+
         List<String> columns = null;
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    new FileInputStream(path), "UTF8"))) {
-            
+                new FileInputStream(path), "UTF8"))) {
+
             // read header into list
             columns = reader.lines()
                     .findFirst()
@@ -75,39 +83,43 @@ public class CsvReader {
         // create index map
         indexMap = new HashMap<>();
         int maxIndex = -1;
-        Map<String, List<String>> tokenMap = Mapping.getTokenMap();
-        if (columns != null) {
-            Iterator<Map.Entry<String, List<String>>> iterator = tokenMap.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<String, List<String>> next = iterator.next();
-                for (String token : next.getValue()) {
-                    String key = next.getKey();
-                    if (columns.contains(token)) {
-                        int columnIndex = columns.indexOf(token);
-                        maxIndex = maxIndex < columnIndex ? columnIndex : maxIndex;
-                        indexMap.put(key, columnIndex);
-                        System.out.println("\rColumn providing field '" + key + "': " + columns.get(columnIndex));
-                        break;
-                    }
+        Map<String, List<String>> tokenMap;
+        if (!minimal) {
+            tokenMap = Mapping.getTokenMap();
+        } else {
+            tokenMap = Mapping.getMinimalTokenMap();
+        }
+
+        Iterator<Map.Entry<String, List<String>>> iterator = tokenMap.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, List<String>> next = iterator.next();
+            for (String token : next.getValue()) {
+                String key = next.getKey();
+                if (columns.contains(token)) {
+                    int columnIndex = columns.indexOf(token);
+                    maxIndex = maxIndex < columnIndex ? columnIndex : maxIndex;
+                    indexMap.put(key, columnIndex);
+                    System.out.println("\rColumn providing field '" + key + "': " + columns.get(columnIndex));
+                    break;
                 }
             }
-            System.out.println();
         }
-        
+        System.out.println();
+
         if (indexMap.keySet().size() != tokenMap.keySet().size()) {
             System.err.println("Invalid header: " + columns);
             throw new IOException("Invalid header.");
-        }       
-        
+        }
+
         System.out.println("\rParsing...");
         // read data
         final int minLength = maxIndex + 1;
         minLineLength = minLength;
         List<ArchivedFileInfo> fileInfoList = new ArrayList<>();
-        
+
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    new FileInputStream(path), "UTF8"))) {
-            
+                new FileInputStream(path), "UTF8"))) {
+
             // little hack to 'get access' to line numbers
             final AtomicInteger dataLineNumber = new AtomicInteger(1);
             // find first line of data
@@ -128,8 +140,7 @@ public class CsvReader {
                         .map(line -> getLineAsFileInfo(line.split("\t", -1), dataLineNumber.intValue(), autoCorrect, ignoreFields))
                         .collect(Collectors.toList()));
             } else {
-                List<String> rawLineData = new ArrayList<>();
-                rawLineData = reader.lines().collect(Collectors.toList());
+                List<String> rawLineData = reader.lines().collect(Collectors.toList());
 
                 List<String> correctedData = new ArrayList<>();
                 String correctedLine = "";
@@ -160,6 +171,7 @@ public class CsvReader {
                                 correctedLine = "";
                                 if (verbose) {
                                     System.out.println("\rAuto correction successfull.");
+                                    System.out.println("");
                                 }
                             } else {
                                 if (count > headerSize - 1) {
@@ -183,24 +195,28 @@ public class CsvReader {
         if (potentiallyInvalidDataLines > 0) {
             System.out.println("\rFile '" + path + "' has " + potentiallyInvalidDataLines + " potentially invalid lines.");
         }
-        
+
         if (parsingErrors || (potentiallyInvalidDataLines > 0)) {
             System.out.println("\rFile '" + path + "' has " + invalidDataLines + " invalid lines.");
             System.out.println("\rNo data imported.");
             return false;
         }
-        
+
         System.out.println("\rImporting into elasticsearch index...");
-        for (ArchivedFileInfo fileInfo: fileInfoList) {
-            esImport(fileInfo, verbose);
+        for (ArchivedFileInfo fileInfo : fileInfoList) {
+            //esImport(fileInfo, verbose);
+            bulkIndexer.add(fileInfo);
         }
-        System.out.println("\r" + fileInfoList.size() + " records imported.");
+        bulkIndexer.close(fileInfoList.size());
+        if (lostLines > 0) {
+            System.out.println("\r" + lostLines + " records lost.");
+        }
+        System.out.println("\r" + (fileInfoList.size() - lostLines) + " records imported.");
         return true;
     }
-    
-    private ArchivedFileInfo getLineAsFileInfo(final String[] dataLine, final int lineNumber
-            , final boolean autoCorrect, final Set<String> ignoreFields) {
-        
+
+    private ArchivedFileInfo getLineAsFileInfo(final String[] dataLine, final int lineNumber, final boolean autoCorrect, final Set<String> ignoreFields) {
+
         String detailMessage = "\rMissing columns";
         if (dataLine.length >= minLineLength) {
             final ArchivedFileInfo fileInfo = new ArchivedFileInfo(esService.getIndexName(), autoCorrect);
@@ -212,10 +228,10 @@ public class CsvReader {
                     Integer index = entrySet.getValue();
                     Field field = ArchivedFileInfo.class.getDeclaredField(fieldName);
                     Class<?> fieldType = field.getType();
-                    
+
                     setterName = "set" + Character.toUpperCase(fieldName.charAt(0)) + fieldName.substring(1);
                     Method setterMethod = ArchivedFileInfo.class.getMethod(setterName, fieldType);
-                    
+
                     final String value = dataLine[index];
                     boolean ignore = ignoreFields.contains(fieldName);
                     if (!value.isEmpty() || ignore) {
@@ -223,21 +239,21 @@ public class CsvReader {
                             setterMethod.invoke(fileInfo, value);
                         } catch (InvocationTargetException e) {
                             // a little hack to get -A and -I working together for the date fields
-                            if (e.getTargetException() instanceof DateTimeParseException 
+                            if (e.getTargetException() instanceof DateTimeParseException
                                     && e.getTargetException().getMessage().equals(
                                             "Autocorrection failed. As both date columns could not be parsed.")) {
-                                for (String fn: Arrays.asList(new String[] {"created", "lastChanged"})) {
+                                for (String fn : Arrays.asList(new String[]{"created", "lastChanged"})) {
                                     Field f = ArchivedFileInfo.class.getDeclaredField(fn);
                                     f.setAccessible(true);
                                     f.set(fileInfo, "");
                                 }
                                 continue;
                             }
-                            
+
                             if (ignore) {
                                 continue;
                             }
-                            
+
                             throw e;
                         }
                     } else {
@@ -246,12 +262,33 @@ public class CsvReader {
                         System.err.println("No value for field '" + fieldName + "'");
                         System.err.println("" + lineNumber + ": " + Arrays.toString(dataLine));
                         System.err.println();
+                        if ("path".equals(fieldName)) {
+                            System.err.println("FATAL! Cannot import file info without path!");
+                            System.exit(11);
+                        }
                     }
+                }
+
+                int idHashCode = fileInfo.getPath().hashCode();
+                if (parsedIds.contains(idHashCode)) {
+                    System.err.println("SEVERE! Dublicate path '" + fileInfo.getPath() + "'at line " + lineNumber);
+                    System.err.println("" + lineNumber + ": " + Arrays.toString(dataLine));
+                    System.out.println("Hit [ENTER] to exit.");
+                    System.out.println("To continue the import type: Yes, I know, I will lose data!");
+                    Scanner scanner = new Scanner(System.in);
+                    String confirm = scanner.nextLine();
+                    if (!confirm.equals("Yes, I know, I will lose data!")) {
+                        System.exit(5);
+                    }
+                    System.out.println("");
+                    lostLines++;
+                } else {
+                    parsedIds.add(idHashCode);
                 }
 
                 return fileInfo;
             } catch (InvocationTargetException ex) {
-                detailMessage = "Could not set field '" + fieldName + "'. Cause: " 
+                detailMessage = "Could not set field '" + fieldName + "'. Cause: "
                         + ex.getTargetException().getMessage();
             } catch (NoSuchFieldException | NoSuchMethodException | IllegalAccessException ex) {
                 System.err.println("Failed to call setter " + setterName);
@@ -266,26 +303,5 @@ public class CsvReader {
         System.err.println();
         parsingErrors = true;
         return null;
-    }
-    
-    private void esImport(final ArchivedFileInfo fileInfo, final boolean verbose) {
-
-        final ObjectMapper mapper = new ObjectMapper();
-
-        try {
-            byte[] jsonAsBytes = mapper.writeValueAsBytes(fileInfo);
-            if (verbose) {
-                System.out.println(mapper.writeValueAsString(fileInfo));
-            }
-            
-            String id = esService.addToIndex(jsonAsBytes, fileInfo.getPath());
-            if (id == null || id.isEmpty()) {
-                System.err.println("Failed to add entry " + mapper.writeValueAsString(fileInfo));
-            }
-        } catch (JsonProcessingException ex) {
-            System.err.println("Failed to map entry to JSON " + fileInfo);
-            System.err.println("Cause: " + ex.getMessage());
-        }
-
     }
 }

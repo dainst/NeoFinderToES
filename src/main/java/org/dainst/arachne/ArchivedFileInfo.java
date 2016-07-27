@@ -31,6 +31,7 @@ public class ArchivedFileInfo {
     private String path;
 
     private String size;
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
     private long sizeInBytes;
 
     private String created = "";

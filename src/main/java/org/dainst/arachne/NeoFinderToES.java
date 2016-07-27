@@ -46,6 +46,8 @@ public class NeoFinderToES {
 
     private static boolean scanMode = true;
     
+    private static boolean minimalImport = false;
+    
     private static boolean strictScanMode = true;
 
     private static int mimeInfo = 1;
@@ -120,7 +122,12 @@ public class NeoFinderToES {
                 .hasArg()
                 .argName("STRATEGY")
                 .build());
-
+        options.addOption(Option.builder()
+                .longOpt("iknowiamonlyimportingpathandvolume")
+                .desc("import only path and volume" + newline
+                        + "(for catalog parsing only)")
+                .build());
+                
         String address = "";
         List<String> argList = null;
         try {
@@ -130,6 +137,7 @@ public class NeoFinderToES {
             if (!argList.isEmpty()) {
                 scanMode = !cmd.hasOption("c");
                 autoCorrect = !scanMode && cmd.hasOption("A");
+                minimalImport = !scanMode && cmd.hasOption("iknowiamonlyimportingpathandvolume");
                 verbose = cmd.hasOption("v");
                 if (cmd.hasOption("a")) {
                     address = cmd.getOptionValue("a");
@@ -217,12 +225,14 @@ public class NeoFinderToES {
                     } else {
                         String[] files = scanDirectory.list();
                         for (final String file : files) {
-                            new CsvReader(esService).read(scanDirectory + "/" + file, autoCorrect, ignoreFields, verbose);
+                            new CsvReader(esService, verbose).read(scanDirectory + "/" + file, autoCorrect, ignoreFields
+                                    , minimalImport);
                         }
                     }
                 } else {
                     if (!scanMode) {
-                        new CsvReader(esService).read(scanDirectory.getAbsolutePath(), autoCorrect, ignoreFields, verbose);
+                        new CsvReader(esService, verbose).read(scanDirectory.getAbsolutePath(), autoCorrect, ignoreFields
+                                , minimalImport);
                     }
                 }
             } catch (IOException ex) {

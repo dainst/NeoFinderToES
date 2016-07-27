@@ -2,8 +2,6 @@ package org.dainst.arachne;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import org.elasticsearch.action.bulk.BulkProcessor;
 import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
@@ -18,10 +16,6 @@ public class BulkIndexer {
 
     private ESService esService;
 
-    private final String volume;
-
-    private String hostname;
-
     private final BulkProcessorListener listener = new BulkProcessorListener();
 
     private final BulkProcessor bulkProcessor;
@@ -35,17 +29,10 @@ public class BulkIndexer {
     private int filesRead = 0;
     
     private boolean verbose;
-
-    public BulkIndexer(final ESService esService, final String volume, final boolean verbose) {
+    
+    public BulkIndexer(final ESService esService, final boolean verbose) {
         this.esService = esService;
-        this.volume = volume;
         this.verbose = verbose;
-
-        try {
-            this.hostname = InetAddress.getLocalHost().getHostName();
-        } catch (UnknownHostException ex) {
-            this.hostname = "unknown";
-        }
 
         bulkProcessor = BulkProcessor.builder(esService.getClient(), listener)
                 .setBulkActions(100000)
@@ -54,8 +41,6 @@ public class BulkIndexer {
     }
 
     void add(final ArchivedFileInfo fileInfo) {
-        fileInfo.setVolume(volume);
-        fileInfo.setCatalog(hostname);
         fileInfo.setIndex(esService.getIndexName());
 
         try {

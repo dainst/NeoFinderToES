@@ -1,6 +1,9 @@
 package org.dainst.arachne;
 
 import java.io.File;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -22,6 +25,10 @@ public class FileInfoCollector implements Callable<Integer> {
 
     private final BulkIndexer bulkIndexer;
 
+    private final File volume;
+    
+    private String hostname;
+    
     private Thread myself;
 
     public FileInfoCollector(final File volume, final ESService esService, final BlockingQueue queue,
@@ -30,7 +37,14 @@ public class FileInfoCollector implements Callable<Integer> {
         this.queue = queue;
         this.esService = esService;
         this.verbose = verbose;
-        bulkIndexer = new BulkIndexer(esService, volume.toString(), verbose);
+        this.volume = volume;
+        
+        bulkIndexer = new BulkIndexer(esService, verbose);
+        try {
+            this.hostname = InetAddress.getLocalHost().getHostName();
+        } catch (UnknownHostException ex) {
+            this.hostname = "unknown";
+        }
     }
 
     @Override
@@ -46,7 +60,11 @@ public class FileInfoCollector implements Callable<Integer> {
                     }
                     filesSubmitted += fileInfos.size();
 
-                    fileInfos.stream().forEach(fileInfo -> bulkIndexer.add(fileInfo));
+                    fileInfos.stream().forEach(fileInfo -> {
+                        fileInfo.setVolume(volume.toString());
+                        fileInfo.setCatalog(hostname);
+                        bulkIndexer.add(fileInfo);
+                    });
                     fileInfos = null;
                 } else {
                     Thread.sleep(100);
