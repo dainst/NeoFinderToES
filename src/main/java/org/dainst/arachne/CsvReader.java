@@ -41,7 +41,7 @@ public class CsvReader {
 
     private final boolean verbose;
 
-    private final Set<Integer> parsedIds = new HashSet<>();
+    private final Set<String> parsedIds = new HashSet<>();
 
     public CsvReader(final ESService esService, final boolean verbose) {
         this.esService = esService;
@@ -269,8 +269,8 @@ public class CsvReader {
                     }
                 }
 
-                int idHashCode = fileInfo.getPath().hashCode();
-                if (parsedIds.contains(idHashCode)) {
+                String id = fileInfo.getPath();
+                if (parsedIds.contains(id)) {
                     System.err.println("SEVERE! Dublicate path '" + fileInfo.getPath() + "'at line " + lineNumber);
                     System.err.println("" + lineNumber + ": " + Arrays.toString(dataLine));
                     System.out.println("Hit [ENTER] to exit.");
@@ -283,7 +283,7 @@ public class CsvReader {
                     System.out.println("");
                     lostLines++;
                 } else {
-                    parsedIds.add(idHashCode);
+                    parsedIds.add(id);
                 }
 
                 return fileInfo;
