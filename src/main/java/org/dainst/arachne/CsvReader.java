@@ -147,12 +147,13 @@ public class CsvReader {
                 int lineNumber = dataLineNumber.intValue();
                 for (String line : rawLineData) {
                     lineNumber++;
-                    int count = line.length() - line.replace("\t", "").length();
-                    if (count == headerSize - 1) {
+                    int count = getTabs(line) + 1;
+                    if (count == headerSize) {
                         correctedData.add(line);
                     } else {
                         if (verbose) {
-                            System.out.println("\rIncomplete line.");
+                            System.out.println("\rColumn mismatch.");
+                            System.out.println("\rExpected " + headerSize + ", got " + count + " columns.");
                             System.out.println("\r" + lineNumber + ": " + line);
                         }
                         if ("".equals(correctedLine)) {
@@ -165,8 +166,8 @@ public class CsvReader {
                                 System.out.println("\r" + new String(new char[l]).replace('\0', '*') + ": "
                                         + correctedLine);
                             }
-                            count = correctedLine.length() - correctedLine.replace("\t", "").length();
-                            if (count == headerSize - 1) {
+                            count = getTabs(correctedLine) + 1;
+                            if (count == headerSize) {
                                 correctedData.add(correctedLine);
                                 correctedLine = "";
                                 if (verbose) {
@@ -174,7 +175,7 @@ public class CsvReader {
                                     System.out.println("");
                                 }
                             } else {
-                                if (count > headerSize - 1) {
+                                if (count > headerSize) {
                                     System.err.println("Auto correction failed at line: " + lineNumber);
                                     System.exit(0);
                                 }
@@ -215,6 +216,16 @@ public class CsvReader {
         return true;
     }
 
+    private int getTabs(final String string) {
+        AtomicInteger result = new AtomicInteger(0);
+        string.chars().forEach(c -> {
+            if (c == '\t') {
+                result.addAndGet(1);
+            }
+        });
+        return result.get();
+    }
+    
     private ArchivedFileInfo getLineAsFileInfo(final String[] dataLine, final int lineNumber, final boolean autoCorrect, final Set<String> ignoreFields) {
 
         String detailMessage = "\rMissing columns";

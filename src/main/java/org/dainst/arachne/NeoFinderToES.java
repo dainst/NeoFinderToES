@@ -215,7 +215,7 @@ public class NeoFinderToES {
                     continue;
                 }
 
-                if (!verbose && !progressIndicator.isAlive()) {
+                if (!progressIndicator.isAlive()) {
                     progressIndicator.start();
                 }
 
@@ -242,7 +242,7 @@ public class NeoFinderToES {
         
         esService.close();
         
-        if (!verbose && progressIndicator.isAlive()) {
+        if (progressIndicator.isAlive()) {
             progressIndicator.terminate();
         }
     }
