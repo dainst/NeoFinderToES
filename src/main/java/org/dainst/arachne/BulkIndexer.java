@@ -52,6 +52,11 @@ public class BulkIndexer {
             System.err.println("Could not map file info to JSON. Cause: " + ex);
         }
     }
+    
+    void add(final ArchivedFileInfo fileInfo, final int filesRead) {
+        this.filesRead = filesRead;
+        add(fileInfo);
+    }
 
     void close(final int filesRead) {
         this.filesRead = filesRead;

@@ -225,13 +225,13 @@ public class NeoFinderToES {
                     } else {
                         String[] files = scanDirectory.list();
                         for (final String file : files) {
-                            new CsvReader(esService, verbose).read(scanDirectory + "/" + file, autoCorrect, ignoreFields
+                            new CsvReader(esService, verbose, progressIndicator).read(scanDirectory + "/" + file, autoCorrect, ignoreFields
                                     , minimalImport);
                         }
                     }
                 } else {
                     if (!scanMode) {
-                        new CsvReader(esService, verbose).read(scanDirectory.getAbsolutePath(), autoCorrect, ignoreFields
+                        new CsvReader(esService, verbose, progressIndicator).read(scanDirectory.getAbsolutePath(), autoCorrect, ignoreFields
                                 , minimalImport);
                     }
                 }

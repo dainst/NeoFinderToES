@@ -6,13 +6,18 @@ package org.dainst.arachne;
 class ProgressRotating extends Thread {
 
         private boolean terminate = false;
-
+        private boolean paused = false;
+        
         @Override
         public void run() {
             String anim = "|/-\\";
             int x = 0;
             while (!terminate) {
-                System.out.print("\r" + anim.charAt(x++ % anim.length()));
+                if (!paused) {
+                    System.out.print("\r" + anim.charAt(x++ % anim.length()));
+                } else {
+                    System.out.print("\r");
+                }
                 try {
                     Thread.sleep(100);
                 } catch (Exception e) {
@@ -23,5 +28,13 @@ class ProgressRotating extends Thread {
         
         public void terminate() {
             terminate = true;
+        }
+        
+        public void pause() {
+            paused = true;
+        }
+        
+        public void unpause() {
+            paused = false;
         }
 }

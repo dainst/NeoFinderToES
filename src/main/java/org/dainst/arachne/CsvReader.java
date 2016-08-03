@@ -1,13 +1,17 @@
 package org.dainst.arachne;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,6 +31,8 @@ import java.util.stream.Collectors;
  */
 public class CsvReader {
 
+    private final ProgressRotating progressIndicator;
+
     private final ESService esService;
 
     private final BulkIndexer bulkIndexer;
@@ -43,13 +49,14 @@ public class CsvReader {
 
     private final Set<String> parsedIds = new HashSet<>();
 
-    public CsvReader(final ESService esService, final boolean verbose) {
+    public CsvReader(final ESService esService, final boolean verbose, final ProgressRotating progressIndicator) {
         this.esService = esService;
         this.verbose = verbose;
+        this.progressIndicator = progressIndicator;
         bulkIndexer = new BulkIndexer(esService, verbose);
     }
 
-    public boolean read(final String path, final boolean autoCorrect, final Set<String> ignoreFields, final boolean minimal) throws IOException {
+    public boolean read(String path, final boolean autoCorrect, final Set<String> ignoreFields, final boolean minimal) throws IOException {
 
         if (!(path.endsWith(".csv") || path.endsWith(".txt"))) {
             System.out.println("\rSkipping " + path + " (no csv or txt)");
@@ -67,9 +74,28 @@ public class CsvReader {
         potentiallyInvalidDataLines = 0;
         invalidDataLines = 0;
 
+        System.out.println("Cleaning file...");
+        String out = path.substring(0, path.lastIndexOf(".")) + ".tmp.txt";
+        try (BufferedReader charReader = new BufferedReader(new InputStreamReader(new FileInputStream(path), "UTF8"))) {
+            try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(out), "UTF-8"))) {
+                int r;
+                while ((r = charReader.read()) != -1) {
+                    if (r != 10) {
+                        writer.write(r);
+                    }
+                }
+            } catch (IOException e) {
+                throw e;
+            }
+        } catch (IOException e) {
+            throw e;
+        }
+
+        path = out;
+
         List<String> columns = null;
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                new FileInputStream(path), "UTF8"))) {
+                new FileInputStream(path), "UTF-8"))) {
 
             // read header into list
             columns = reader.lines()
@@ -152,9 +178,23 @@ public class CsvReader {
                         correctedData.add(line);
                     } else {
                         if (verbose) {
-                            System.out.println("\rColumn mismatch.");
-                            System.out.println("\rExpected " + headerSize + ", got " + count + " columns.");
-                            System.out.println("\r" + lineNumber + ": " + line);
+                            System.err.println("Expected " + headerSize + ", got " + count + " columns.");
+                            System.err.println("\r" + lineNumber + ": " + line);
+                        }
+                        if (count > headerSize) {
+                            pauseProgressIndicator();
+                            System.out.println("\rColumn mismatch at line " + lineNumber);
+                            showLineMapped(line);
+                            System.out.println("\r");
+                            System.out.println("Import this file info and continue? [Y/n]");
+                            Scanner scanner = new Scanner(System.in);
+                            String confirm = scanner.nextLine();
+                            if (confirm.isEmpty() || confirm.toLowerCase().startsWith("y")) {
+                                correctedData.add(line);
+                                unpauseProgresIndicator();
+                                continue;
+                            }
+                            System.exit(9);
                         }
                         if ("".equals(correctedLine)) {
                             correctedLine = line;
@@ -193,6 +233,9 @@ public class CsvReader {
             throw e;
         }
 
+        // delete tmp file
+        Files.deleteIfExists(new File(out).toPath());
+                
         if (potentiallyInvalidDataLines > 0) {
             System.out.println("\rFile '" + path + "' has " + potentiallyInvalidDataLines + " potentially invalid lines.");
         }
@@ -204,10 +247,9 @@ public class CsvReader {
         }
 
         System.out.println("\rImporting into elasticsearch index...");
-        for (ArchivedFileInfo fileInfo : fileInfoList) {
-            //esImport(fileInfo, verbose);
-            bulkIndexer.add(fileInfo);
-        }
+        fileInfoList.stream().forEach((fileInfo) -> {
+            bulkIndexer.add(fileInfo, fileInfoList.size());
+        });
         bulkIndexer.close(fileInfoList.size());
         if (lostLines > 0) {
             System.out.println("\r" + lostLines + " records lost.");
@@ -225,7 +267,18 @@ public class CsvReader {
         });
         return result.get();
     }
-    
+
+    private void showLineMapped(final String line) {
+        System.out.println("Extracted file info: ");
+        String[] columns = line.split("\t", -1);
+        String result = "";
+        for (Map.Entry<String, Integer> entrySet : indexMap.entrySet()) {
+            String fieldName = entrySet.getKey();
+            Integer index = entrySet.getValue();
+            System.out.println(fieldName + ": " + columns[index]);
+        }
+    }
+
     private ArchivedFileInfo getLineAsFileInfo(final String[] dataLine, final int lineNumber, final boolean autoCorrect, final Set<String> ignoreFields) {
 
         String detailMessage = "\rMissing columns";
@@ -314,5 +367,17 @@ public class CsvReader {
         System.err.println();
         parsingErrors = true;
         return null;
+    }
+
+    private void pauseProgressIndicator() {
+        if (progressIndicator.isAlive()) {
+            progressIndicator.pause();
+        }
+    }
+
+    private void unpauseProgresIndicator() {
+        if (progressIndicator.isAlive()) {
+            progressIndicator.unpause();
+        }
     }
 }
