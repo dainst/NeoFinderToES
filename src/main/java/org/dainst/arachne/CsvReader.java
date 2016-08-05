@@ -199,7 +199,7 @@ public class CsvReader {
                                 unpauseProgresIndicator();
                                 continue;
                             }
-                            System.exit(9);
+                            exit(9);
                         }
                         if ("".equals(correctedLine)) {
                             correctedLine = line;
@@ -222,7 +222,7 @@ public class CsvReader {
                             } else {
                                 if (count > headerSize) {
                                     System.err.println("Auto correction failed at line: " + lineNumber);
-                                    System.exit(0);
+                                    exit(0);
                                 }
                             }
                         }
@@ -333,7 +333,7 @@ public class CsvReader {
                         System.err.println();
                         if ("path".equals(fieldName)) {
                             System.err.println("FATAL! Cannot import file info without path!");
-                            System.exit(11);
+                            exit(11);
                         }
                     }
                 }
@@ -347,7 +347,7 @@ public class CsvReader {
                     Scanner scanner = new Scanner(System.in);
                     String confirm = scanner.nextLine();
                     if (!confirm.equals("Yes, I know, I will lose data!")) {
-                        System.exit(5);
+                        exit(5);
                     }
                     System.out.println("");
                     lostLines++;
@@ -362,7 +362,7 @@ public class CsvReader {
             } catch (NoSuchFieldException | NoSuchMethodException | IllegalAccessException ex) {
                 System.err.println("Failed to call setter " + setterName);
                 System.err.println("Cause: " + ex);
-                System.exit(10);
+                exit(10);
             }
         }
         invalidDataLines++;
