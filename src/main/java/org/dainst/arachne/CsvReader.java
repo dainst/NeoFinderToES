@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -48,7 +50,9 @@ public class CsvReader {
     private final boolean verbose;
 
     private final Set<String> parsedIds = new HashSet<>();
-
+    
+    private File tmpFile;
+    
     public CsvReader(final ESService esService, final boolean verbose, final ProgressRotating progressIndicator) {
         this.esService = esService;
         this.verbose = verbose;
@@ -76,6 +80,7 @@ public class CsvReader {
 
         System.out.println("Cleaning file...");
         String out = path.substring(0, path.lastIndexOf(".")) + ".tmp.txt";
+        tmpFile = new File(out);
         try (BufferedReader charReader = new BufferedReader(new InputStreamReader(new FileInputStream(path), "UTF8"))) {
             try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(out), "UTF-8"))) {
                 int r;
@@ -379,5 +384,14 @@ public class CsvReader {
         if (progressIndicator.isAlive()) {
             progressIndicator.unpause();
         }
+    }
+    
+    private void exit(final int exitCode) {
+        try {
+            Files.deleteIfExists(tmpFile.toPath());
+        } catch (IOException ex) {
+            System.err.println("Could not delete temporary file: " + tmpFile.toString());
+        }
+        System.exit(exitCode);
     }
 }
