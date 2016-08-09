@@ -51,9 +51,9 @@ public class CsvReader {
     private final boolean verbose;
 
     private final Set<String> parsedIds = new HashSet<>();
-    
+
     private Path tmpFile;
-    
+
     public CsvReader(final ESService esService, final boolean verbose, final ProgressRotating progressIndicator) {
         this.esService = esService;
         this.verbose = verbose;
@@ -177,6 +177,7 @@ public class CsvReader {
 
                 List<String> correctedData = new ArrayList<>();
                 String correctedLine = "";
+                boolean yesToAll = false;
                 int lineNumber = dataLineNumber.intValue();
                 for (String line : rawLineData) {
                     lineNumber++;
@@ -193,10 +194,20 @@ public class CsvReader {
                             System.out.println("\rColumn mismatch at line " + lineNumber);
                             showLineMapped(line);
                             System.out.println("\r");
-                            System.out.println("Import this file info and continue? [Y/n]");
-                            Scanner scanner = new Scanner(System.in);
-                            String confirm = scanner.nextLine();
-                            if (confirm.isEmpty() || confirm.toLowerCase().startsWith("y")) {
+                            if (!yesToAll) {
+                                System.out.println("Import this file info and continue? [Y/n/a]");
+                                Scanner scanner = new Scanner(System.in);
+                                String confirm = scanner.nextLine();
+                                if (confirm.toLowerCase().startsWith("a")) {
+                                    yesToAll = true;
+                                    confirm = "";
+                                }
+                                if (confirm.isEmpty() || confirm.toLowerCase().startsWith("y")) {
+                                    correctedData.add(line);
+                                    unpauseProgresIndicator();
+                                    continue;
+                                }
+                            } else {
                                 correctedData.add(line);
                                 unpauseProgresIndicator();
                                 continue;
@@ -242,7 +253,7 @@ public class CsvReader {
 
         // delete tmp file
         Files.deleteIfExists(tmpFile);
-                
+
         if (potentiallyInvalidDataLines > 0) {
             System.out.println("\rFile '" + path + "' has " + potentiallyInvalidDataLines + " potentially invalid lines.");
         }
@@ -387,7 +398,7 @@ public class CsvReader {
             progressIndicator.unpause();
         }
     }
-    
+
     private void exit(final int exitCode) {
         try {
             Files.deleteIfExists(tmpFile);
