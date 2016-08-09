@@ -2,7 +2,6 @@ package org.dainst.arachne;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -12,6 +11,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -51,7 +52,7 @@ public class CsvReader {
 
     private final Set<String> parsedIds = new HashSet<>();
     
-    private File tmpFile;
+    private Path tmpFile;
     
     public CsvReader(final ESService esService, final boolean verbose, final ProgressRotating progressIndicator) {
         this.esService = esService;
@@ -68,8 +69,8 @@ public class CsvReader {
         }
 
         System.out.println("\rCatalog file: " + path);
-        File file = new File(path);
-        if (!file.canRead()) {
+        Path file = Paths.get(path);
+        if (!Files.isReadable(file)) {
             System.err.println("Unable to read file: " + path);
             return false;
         }
@@ -79,8 +80,9 @@ public class CsvReader {
         invalidDataLines = 0;
 
         System.out.println("Cleaning file...");
-        String out = path.substring(0, path.lastIndexOf(".")) + ".tmp.txt";
-        tmpFile = new File(out);
+        String out = "/tmp/" + Paths.get(path.substring(0, path.lastIndexOf(".")) + ".tmp.txt").getFileName();
+        tmpFile = Paths.get(out);
+        Files.deleteIfExists(tmpFile);
         try (BufferedReader charReader = new BufferedReader(new InputStreamReader(new FileInputStream(path), "UTF8"))) {
             try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(out), "UTF-8"))) {
                 int r;
@@ -239,7 +241,7 @@ public class CsvReader {
         }
 
         // delete tmp file
-        Files.deleteIfExists(new File(out).toPath());
+        Files.deleteIfExists(tmpFile);
                 
         if (potentiallyInvalidDataLines > 0) {
             System.out.println("\rFile '" + path + "' has " + potentiallyInvalidDataLines + " potentially invalid lines.");
@@ -388,7 +390,7 @@ public class CsvReader {
     
     private void exit(final int exitCode) {
         try {
-            Files.deleteIfExists(tmpFile.toPath());
+            Files.deleteIfExists(tmpFile);
         } catch (IOException ex) {
             System.err.println("Could not delete temporary file: " + tmpFile.toString());
         }
