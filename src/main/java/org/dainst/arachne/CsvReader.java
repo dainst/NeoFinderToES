@@ -183,7 +183,14 @@ public class CsvReader {
                     lineNumber++;
                     int count = getTabs(line) + 1;
                     if (count == headerSize) {
-                        correctedData.add(line);
+                        if (line.startsWith("\t")) {
+                            int last = correctedData.size() - 1;
+                            System.out.println("before: " + correctedData.get(last));
+                            correctedData.set(last, correctedData.get(last) + line);
+                            System.out.println("after : " + correctedData.get(last));
+                        } else {
+                            correctedData.add(line);
+                        }
                     } else {
                         if (verbose) {
                             System.err.println("Expected " + headerSize + ", got " + count + " columns.");
