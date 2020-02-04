@@ -5,5 +5,5 @@ java=java
 if test -n "$JAVA_HOME"; then
     java="$JAVA_HOME/bin/java"
 fi
-exec "$java" $java_args -Xms2048m -Xmx4096m -XX:OnOutOfMemoryError="kill -9 %p" -jar $MYSELF "$@"
+exec "$java" $java_args -Xms2048m -Xmx16g -XX:OnOutOfMemoryError="kill -9 %p" -jar $MYSELF "$@"
 exit 1 
