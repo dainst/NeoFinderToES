@@ -1,3 +1,7 @@
+# ⚠️ Deprecated ⚠️
+
+See https://github.com/dainst/file-index.
+
 # NeoFinderToES
 
 ## Prerequisites
